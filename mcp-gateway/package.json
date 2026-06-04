@@ -1,0 +1,12 @@
+{
+  "name": "horix-mcp-gateway",
+  "version": "2.1.0",
+  "description": "MCP Gateway unificado + SSO Auth para horix-platform",
+  "main": "server.js",
+  "scripts": { "start": "node server.js" },
+  "dependencies": {
+    "express": "^4.21.0",
+    "jsonwebtoken": "^9.0.2",
+    "pg": "^8.12.0"
+  }
+}
