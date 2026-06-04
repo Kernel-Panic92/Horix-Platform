@@ -1,6 +1,8 @@
 [submodule "modules/horix"]
 	path = modules/horix
 	url = https://github.com/Kernel-Panic92/Horix.git
+	branch = platform-auth
 [submodule "modules/docflow"]
 	path = modules/docflow
 	url = https://github.com/Kernel-Panic92/docflow.git
+	branch = platform-auth

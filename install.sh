@@ -93,6 +93,11 @@ echo ">>> Inicializando submodules..."
 if [ -d "$PLATFORM_DIR/.git" ]; then
   cd "$PLATFORM_DIR"
   git submodule update --init --recursive 2>/dev/null || echo "  (no hay submodules registrados)"
+  # Checkout branches defined in .gitmodules
+  git submodule foreach -q --recursive '
+    branch="$(git config -f $toplevel/.gitmodules submodule.$name.branch || echo main)"
+    git checkout "$branch" 2>/dev/null && echo "  Submodulo $name actualizado a $branch"
+  ' 2>/dev/null || true
 else
   echo "  No es un repo git — usando directorios existentes"
   mkdir -p "$INSTALL_DIR/modules"
