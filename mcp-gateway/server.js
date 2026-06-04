@@ -1,7 +1,9 @@
-// MCP Gateway — orquestador + SSO Auth
-// horix_* → Horix MCP (SQLite), docflow_* → PostgreSQL directo
+// MCP Gateway — Auth centralizada + MCP proxy a módulos
 const express = require('express');
 const jwt = require('jsonwebtoken');
+const bcrypt = require('bcryptjs');
+const Database = require('better-sqlite3');
+const path = require('path');
 const app = express();
 app.use(express.json());
 
@@ -10,7 +12,39 @@ const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret';
 const HORIX_URL = 'http://127.0.0.1:' + (process.env.HORIX_PORT || '3000');
 const DOCFLOW_URL = 'http://127.0.0.1:' + (process.env.DOCFLOW_PORT || '3100');
 
-// DocFlow PostgreSQL connection (used directly by the gateway)
+// ── SQLite user DB ──
+const db = new Database(path.join(__dirname, 'platform.db'));
+db.pragma('journal_mode = WAL');
+db.exec(`
+  CREATE TABLE IF NOT EXISTS usuarios (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    nombre TEXT NOT NULL,
+    email TEXT NOT NULL UNIQUE,
+    password_hash TEXT NOT NULL,
+    rol TEXT NOT NULL DEFAULT 'comprador',
+    activo INTEGER NOT NULL DEFAULT 1,
+    creado TEXT NOT NULL DEFAULT (datetime('now')),
+    actualizado TEXT NOT NULL DEFAULT (datetime('now'))
+  )
+`);
+
+const adminEmail = 'admin@horix.com';
+const existing = db.prepare('SELECT id FROM usuarios WHERE email = ?').get(adminEmail);
+if (!existing) {
+  const hash = bcrypt.hashSync('admin123', 10);
+  db.prepare('INSERT INTO usuarios (nombre, email, password_hash, rol) VALUES (?, ?, ?, ?)').run('Admin Horix', adminEmail, hash, 'admin');
+  console.log('  Admin creado');
+}
+
+const seedEmail = 'comprador@horix.com';
+const seedUser = db.prepare('SELECT id FROM usuarios WHERE email = ?').get(seedEmail);
+if (!seedUser) {
+  const hash = bcrypt.hashSync('comprador2026', 10);
+  db.prepare('INSERT INTO usuarios (nombre, email, password_hash, rol) VALUES (?, ?, ?, ?)').run('Comprador Demo', seedEmail, hash, 'comprador');
+  console.log('  Usuario demo creado');
+}
+
+// ── DocFlow PostgreSQL (used by MCP tools) ──
 let pgPool = null;
 async function getPgPool() {
   if (!pgPool) {
@@ -34,118 +68,126 @@ const MODULES = {
 function rpcResult(id, result) { return { jsonrpc: '2.0', result, id }; }
 function rpcError(id, code, msg) { return { jsonrpc: '2.0', error: { code, message: msg }, id }; }
 
-// ── SSO Auth routes ──
-// Unified login: authenticates against Horix, returns JWT usable by all modules
+// ── Auth middleware ──
+function verificarToken(req, res, next) {
+  const header = req.headers.authorization;
+  const token = header?.startsWith('Bearer ') ? header.split(' ')[1] : null;
+  if (!token) return res.status(401).json({ error: 'Token requerido' });
+  try {
+    req.usuario = jwt.verify(token, JWT_SECRET);
+    next();
+  } catch {
+    res.status(401).json({ error: 'Token inválido o expirado' });
+  }
+}
 
+function soloAdmin(req, res, next) {
+  if (!req.usuario || req.usuario.rol !== 'admin') {
+    return res.status(403).json({ error: 'Se requiere rol admin' });
+  }
+  next();
+}
+
+// ── Auth routes ──
 app.post('/api/auth/login', async (req, res) => {
   const { email, password } = req.body;
   if (!email || !password) return res.status(400).json({ error: 'Campos requeridos' });
 
   try {
-    // Forward user's real IP + UA so Horix stores session correctly
-    const userIP = req.headers['x-forwarded-for'] || req.headers['x-real-ip'] || req.ip || '';
-    const userUA = req.headers['user-agent'] || '';
-    const horixRes = await fetch(HORIX_URL + '/api/auth/login', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Forwarded-For': userIP,
-        'X-Real-IP': userIP,
-        'User-Agent': userUA,
-      },
-      body: JSON.stringify({ email, password })
-    });
-    const data = await horixRes.json();
-    if (!horixRes.ok) return res.status(horixRes.status).json(data);
+    const user = db.prepare('SELECT * FROM usuarios WHERE email = ? AND activo = 1').get(email.toLowerCase().trim());
+    if (!user) return res.status(401).json({ error: 'Credenciales inválidas' });
 
-    const user = data.usuario || data.user;
-    const horixToken = data.token;
+    const match = bcrypt.compareSync(password, user.password_hash);
+    if (!match) return res.status(401).json({ error: 'Credenciales inválidas' });
 
-    // Set Horix session cookie for same-origin SSO
-    // (no forwardeamos la cookie de Horix porque tiene domain=127.0.0.1)
-    res.cookie('he_token', horixToken, {
-      httpOnly: true, secure: false, sameSite: 'lax',
-      maxAge: 30 * 24 * 60 * 60 * 1000,
-      path: '/'
-    });
+    const payload = { id: user.id, email: user.email, nombre: user.nombre, rol: user.rol };
+    const unifiedToken = jwt.sign(payload, JWT_SECRET, { expiresIn: '24h' });
 
-    // Check if user exists in DocFlow; auto-provision if not
-    let docflowRol = null;
-    try {
-      const tempJwt = jwt.sign(
-        { id: user.id, email: user.email, nombre: user.nombre },
-        JWT_SECRET,
-        { expiresIn: '5m' }
-      );
-      const dfRes = await fetch(DOCFLOW_URL + '/api/auth/me', {
-        headers: { 'Authorization': 'Bearer ' + tempJwt }
-      });
-      if (dfRes.ok) {
-        const dfUser = await dfRes.json();
-        docflowRol = dfUser.rol || null;
-      } else {
-        // JIT provision user in DocFlow
-        try {
-          const pool = await getPgPool();
-          const exists = await pool.query('SELECT id FROM usuarios WHERE email = $1', [user.email]);
-          if (exists.rows.length === 0) {
-            await pool.query(
-              `INSERT INTO usuarios (nombre, email, password_hash, rol, activo)
-               VALUES ($1, $2, '', 'comprador', true)`,
-              [user.nombre, user.email]
-            );
-            docflowRol = 'comprador';
-          }
-        } catch (e) {
-          console.error('[SSO] Error provisioning DocFlow user:', e.message);
-        }
-      }
-    } catch {
-      // DocFlow might be offline; continue without docflow access
-    }
+    db.prepare('UPDATE usuarios SET actualizado = datetime(\'now\') WHERE id = ?').run(user.id);
 
-    // Generate unified JWT with all known roles
-    const unifiedToken = jwt.sign(
-      { id: user.id, email: user.email, nombre: user.nombre, rol: user.rol, docflowRol },
-      JWT_SECRET,
-      { expiresIn: '24h' }
-    );
-
-    // Set JWT as cookie so nginx can inject Authorization header into modules
     res.cookie('platform_jwt', unifiedToken, {
       httpOnly: false, secure: false, sameSite: 'lax', maxAge: 24 * 60 * 60 * 1000
     });
 
     res.json({
-      token: data.token,          // Horix session token (for direct Horix API calls)
-      jwt: unifiedToken,          // Unified JWT (for DocFlow + future modules)
-      usuario: {
-        id: user.id,
-        nombre: user.nombre,
-        email: user.email,
-        rol: user.rol,
-        permisos: user.permisos || [],
-        docflowRol
-      }
+      token: unifiedToken,
+      jwt: unifiedToken,
+      usuario: { id: user.id, nombre: user.nombre, email: user.email, rol: user.rol }
     });
   } catch (e) {
-    console.error('[SSO] Login error:', e.stack || e.message);
-    res.status(500).json({ error: 'Error interno: ' + e.message });
+    console.error('[LOGIN]', e.stack || e.message);
+    res.status(500).json({ error: 'Error interno del servidor' });
   }
 });
 
-app.get('/api/auth/me', async (req, res) => {
-  const header = req.headers.authorization;
-  if (!header || !header.startsWith('Bearer ')) return res.status(401).json({ error: 'Token requerido' });
-  const token = header.split(' ')[1];
+app.get('/api/auth/me', verificarToken, (req, res) => {
+  res.json(req.usuario);
+});
+
+// ── Admin: user CRUD ──
+app.get('/api/admin/usuarios', verificarToken, soloAdmin, (req, res) => {
+  const usuarios = db.prepare('SELECT id, nombre, email, rol, activo, creado, actualizado FROM usuarios ORDER BY id').all();
+  res.json(usuarios);
+});
+
+app.post('/api/admin/usuarios', verificarToken, soloAdmin, (req, res) => {
+  const { nombre, email, password, rol } = req.body;
+  if (!nombre || !email || !password || !rol) return res.status(400).json({ error: 'Todos los campos son requeridos' });
+  if (!['admin', 'comprador'].includes(rol)) return res.status(400).json({ error: 'Rol inválido' });
+
   try {
-    const payload = jwt.verify(token, JWT_SECRET);
-    res.json(payload);
-  } catch {
-    res.status(401).json({ error: 'Token inválido o expirado' });
+    const hash = bcrypt.hashSync(password, 10);
+    const result = db.prepare('INSERT INTO usuarios (nombre, email, password_hash, rol) VALUES (?, ?, ?, ?)').run(nombre, email.toLowerCase().trim(), hash, rol);
+    res.json({ id: result.lastInsertRowid, nombre, email: email.toLowerCase().trim(), rol, activo: 1 });
+  } catch (e) {
+    if (e.message.includes('UNIQUE')) return res.status(409).json({ error: 'El email ya existe' });
+    throw e;
   }
 });
 
+app.put('/api/admin/usuarios/:id', verificarToken, soloAdmin, (req, res) => {
+  const { nombre, email, password, rol, activo } = req.body;
+  const id = parseInt(req.params.id);
+  if (isNaN(id)) return res.status(400).json({ error: 'ID inválido' });
+
+  const user = db.prepare('SELECT id FROM usuarios WHERE id = ?').get(id);
+  if (!user) return res.status(404).json({ error: 'Usuario no encontrado' });
+
+  const updates = [];
+  const params = [];
+  if (nombre !== undefined) { updates.push('nombre = ?'); params.push(nombre); }
+  if (email !== undefined) { updates.push('email = ?'); params.push(email.toLowerCase().trim()); }
+  if (rol !== undefined) { updates.push('rol = ?'); params.push(rol); }
+  if (activo !== undefined) { updates.push('activo = ?'); params.push(activo ? 1 : 0); }
+  if (password) {
+    updates.push('password_hash = ?');
+    params.push(bcrypt.hashSync(password, 10));
+  }
+  updates.push("actualizado = datetime('now')");
+  params.push(id);
+
+  try {
+    db.prepare(`UPDATE usuarios SET ${updates.join(', ')} WHERE id = ?`).run(...params);
+    res.json({ ok: true });
+  } catch (e) {
+    if (e.message.includes('UNIQUE')) return res.status(409).json({ error: 'El email ya existe' });
+    throw e;
+  }
+});
+
+app.delete('/api/admin/usuarios/:id', verificarToken, soloAdmin, (req, res) => {
+  const id = parseInt(req.params.id);
+  if (isNaN(id)) return res.status(400).json({ error: 'ID inválido' });
+  if (id === req.usuario.id) return res.status(400).json({ error: 'No puedes desactivarte a ti mismo' });
+
+  const user = db.prepare('SELECT id FROM usuarios WHERE id = ?').get(id);
+  if (!user) return res.status(404).json({ error: 'Usuario no encontrado' });
+
+  db.prepare('UPDATE usuarios SET activo = 0, actualizado = datetime(\'now\') WHERE id = ?').run(id);
+  res.json({ ok: true });
+});
+
+// ── MCP endpoint ──
 app.post('/', async (req, res) => {
   const msg = req.body;
   if (!msg || msg.jsonrpc !== '2.0') {
@@ -158,19 +200,17 @@ app.post('/', async (req, res) => {
       return res.json(rpcResult(id, {
         protocolVersion: '2025-03-26',
         capabilities: { tools: {} },
-        serverInfo: { name: 'horix-mcp-gateway', version: '2.0.0' }
+        serverInfo: { name: 'horix-mcp-gateway', version: '3.0.0' }
       }));
 
     case 'tools/list':
       return res.json(rpcResult(id, {
         tools: [
-          // Horix tools (SQLite via Horix MCP)
           { name: 'horix_consultar', description: 'SQL SELECT sobre Horix (SQLite)', inputSchema: { type: 'object', properties: { sql: { type: 'string' } }, required: ['sql'] } },
           { name: 'horix_tablas', description: 'Lista tablas de Horix', inputSchema: { type: 'object', properties: {} } },
           { name: 'horix_registros', description: 'Busca registros de horas extra', inputSchema: { type: 'object', properties: { estado: { type: 'string' }, sede: { type: 'string' }, limite: { type: 'number' } } } },
           { name: 'horix_empleados', description: 'Busca empleados en Horix', inputSchema: { type: 'object', properties: { termino: { type: 'string' }, sede: { type: 'string' } } } },
           { name: 'horix_estadisticas', description: 'Estadísticas de Horix', inputSchema: { type: 'object', properties: {} } },
-          // DocFlow tools (PostgreSQL directo)
           { name: 'docflow_facturas', description: 'Busca facturas en DocFlow', inputSchema: { type: 'object', properties: { estado: { type: 'string' }, proveedor: { type: 'string' }, limite: { type: 'number' } } } },
           { name: 'docflow_proveedores', description: 'Lista proveedores en DocFlow', inputSchema: { type: 'object', properties: { termino: { type: 'string' } } } },
           { name: 'docflow_estadisticas', description: 'Estadísticas de DocFlow', inputSchema: { type: 'object', properties: {} } },
@@ -185,7 +225,6 @@ app.post('/', async (req, res) => {
       const parts = name.split('_');
       const prefix = parts[0];
 
-      // Horix → proxy a Horix MCP
       if (prefix === 'horix') {
         const toolName = parts.slice(1).join('_');
         const moduleUrl = MODULES[prefix];
@@ -202,7 +241,6 @@ app.post('/', async (req, res) => {
         }
       }
 
-      // DocFlow → PostgreSQL directo
       if (prefix === 'docflow') {
         try {
           const toolName = parts.slice(1).join('_');
@@ -233,8 +271,7 @@ app.post('/', async (req, res) => {
 
 app.get('/', (req, res) => res.json({ status: 'ok', server: 'horix-mcp-gateway' }));
 
-// ── DocFlow tool handlers (direct PostgreSQL) ──
-
+// ── DocFlow tool handlers ──
 async function buscarFacturas({ estado, proveedor, limite }) {
   const pool = await getPgPool();
   let sql = `SELECT f.id, f.numero, f.valor_total, f.estado, p.nombre as proveedor,
