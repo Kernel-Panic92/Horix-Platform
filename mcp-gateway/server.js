@@ -9,8 +9,10 @@ app.use(express.json());
 
 const PORT = parseInt(process.env.MCP_PORT || '3002', 10);
 const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret';
-const HORIX_URL = 'http://127.0.0.1:' + (process.env.HORIX_PORT || '3000');
-const DOCFLOW_URL = 'http://127.0.0.1:' + (process.env.DOCFLOW_PORT || '3100');
+const MODULE_BACKENDS = {
+  horix:   'http://127.0.0.1:' + (process.env.HORIX_PORT   || '3000'),
+  docflow: 'http://127.0.0.1:' + (process.env.DOCFLOW_PORT || '3100'),
+};
 
 // ── SQLite user DB ──
 const db = new Database(path.join(__dirname, 'platform.db'));
@@ -122,10 +124,26 @@ const MODULES = {
 function rpcResult(id, result) { return { jsonrpc: '2.0', result, id }; }
 function rpcError(id, code, msg) { return { jsonrpc: '2.0', error: { code, message: msg }, id }; }
 
+// ── Helper: parse cookies ──
+function parseCookies(req) {
+  const raw = req.headers['cookie'] || '';
+  const result = {};
+  raw.split(';').forEach(pair => {
+    const idx = pair.indexOf('=');
+    if (idx !== -1) result[pair.slice(0, idx).trim()] = decodeURIComponent(pair.slice(idx + 1).trim());
+  });
+  return result;
+}
+
 // ── Auth middleware ──
 function verificarToken(req, res, next) {
+  let token = null;
   const header = req.headers.authorization;
-  const token = header?.startsWith('Bearer ') ? header.split(' ')[1] : null;
+  if (header?.startsWith('Bearer ')) token = header.split(' ')[1];
+  if (!token) {
+    const cookies = parseCookies(req);
+    token = cookies.platform_jwt;
+  }
   if (!token) return res.status(401).json({ error: 'Token requerido' });
   try {
     req.usuario = jwt.verify(token, JWT_SECRET);
@@ -141,6 +159,68 @@ function soloAdmin(req, res, next) {
   }
   next();
 }
+
+// ── API Proxy: /horix/api/* y /docflow/api/* ──
+app.use(async (req, res, next) => {
+  const match = req.path.match(/^\/(horix|docflow)\/api(?:\/.*)?$/);
+  if (!match) return next();
+
+  const moduleName = match[1];
+  const backendUrl = MODULE_BACKENDS[moduleName];
+  if (!backendUrl) return res.status(404).json({ error: 'Módulo no encontrado: ' + moduleName });
+
+  let token = null;
+  const authHeader = req.headers.authorization;
+  if (authHeader?.startsWith('Bearer ')) token = authHeader.split(' ')[1];
+  if (!token) {
+    const cookies = parseCookies(req);
+    token = cookies.platform_jwt;
+  }
+  if (!token) return res.status(401).json({ error: 'Token requerido' });
+
+  let payload;
+  try { payload = jwt.verify(token, JWT_SECRET); }
+  catch { return res.status(401).json({ error: 'Token inválido o expirado' }); }
+
+  const targetPath = req.path.replace(new RegExp('^/' + moduleName + '/api'), '/api');
+  const qs = req.url.includes('?') ? req.url.substring(req.url.indexOf('?')) : '';
+  const targetUrl = backendUrl + targetPath + qs;
+
+  const proxyHeaders = {
+    'X-User-Id':       String(payload.id),
+    'X-User-Email':    payload.email,
+    'X-User-Nombre':   payload.nombre,
+    'X-User-Rol':      payload.rol,
+    'X-User-Permisos': JSON.stringify(payload.permisos || []),
+    'X-Forwarded-For': req.headers['x-forwarded-for'] || req.ip,
+    'X-Forwarded-Proto': req.headers['x-forwarded-proto'] || 'https',
+  };
+  if (req.headers['content-type']) proxyHeaders['Content-Type'] = req.headers['content-type'];
+
+  let body = undefined;
+  if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method) && req.body && Object.keys(req.body).length > 0) {
+    body = JSON.stringify(req.body);
+  }
+
+  try {
+    const backendRes = await fetch(targetUrl, {
+      method: req.method, headers: proxyHeaders, body: body,
+    });
+    const contentType = backendRes.headers.get('content-type') || '';
+    const isJson = contentType.includes('application/json');
+    const text = await backendRes.text();
+    res.status(backendRes.status);
+    const skip = ['transfer-encoding', 'connection', 'keep-alive'];
+    backendRes.headers.forEach((value, key) => {
+      if (!skip.includes(key.toLowerCase())) res.setHeader(key, value);
+    });
+    if (isJson) { try { res.json(JSON.parse(text)); } catch { res.send(text); } }
+    else { res.send(text); }
+  } catch (e) {
+    console.error('[Proxy] Error:', e.message);
+    res.status(502).json({ error: 'Error conectando con ' + moduleName + ': ' + e.message });
+  }
+});
 
 // ── Auth routes ──
 app.post('/api/auth/login', async (req, res) => {

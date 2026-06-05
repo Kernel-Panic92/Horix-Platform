@@ -7,6 +7,28 @@ const db = require('../db');
  */
 async function authMiddleware(req, res, next) {
   try {
+    // Platform mode: trust X-User-* headers from MCP Gateway
+    if (req.headers['x-user-id']) {
+      const { rows } = await db.query(
+        'SELECT u.*, a.nombre AS area_nombre FROM usuarios u LEFT JOIN areas a ON a.id = u.area_id WHERE u.email = $1',
+        [req.headers['x-user-email']]
+      );
+      const permisosGlobales = JSON.parse(req.headers['x-user-permisos'] || '[]');
+      if (rows.length > 0) {
+        req.usuario = { ...rows[0], _permisos_globales: permisosGlobales };
+      } else {
+        const { rows: newRows } = await db.query(
+          `INSERT INTO usuarios (nombre, email, password_hash, rol, activo)
+           VALUES ($1, $2, 'platform_jit', $3, TRUE)
+           RETURNING id, nombre, email, rol`,
+          [req.headers['x-user-nombre'], req.headers['x-user-email'], req.headers['x-user-rol']]
+        );
+        req.usuario = { ...newRows[0], _permisos_globales: permisosGlobales };
+      }
+      return next();
+    }
+
+    // Legacy mode: JWT verification (standalone)
     const header = req.headers.authorization;
     if (!header || !header.startsWith('Bearer ')) {
       return res.status(401).json({ error: 'Token requerido' });
@@ -15,7 +37,6 @@ async function authMiddleware(req, res, next) {
     const token = header.split(' ')[1];
     const payload = jwt.verify(token, process.env.JWT_SECRET);
 
-    // JIT: buscar o crear usuario local por email
     const { rows } = await db.query(
       'SELECT u.*, a.nombre AS area_nombre FROM usuarios u LEFT JOIN areas a ON a.id = u.area_id WHERE u.email = $1',
       [payload.email]

@@ -44,9 +44,26 @@ function createAuth({ BACKUP_TOKEN, enviarCorreo, getConfig, PLATFORM_JWT_SECRET
 
   function autenticar(rolesPermitidos = []) {
     return (req, res, next) => {
+      // Platform mode: trust X-User-* headers from MCP Gateway proxy
+      if (req.headers['x-user-id']) {
+        const email = req.headers['x-user-email'];
+        let usuario = db.prepare('SELECT * FROM usuarios WHERE email = ?').get(email);
+        if (!usuario) {
+          db.prepare('INSERT INTO usuarios (nombre, email, password_hash, rol, activo) VALUES (?, ?, ?, ?, 1)').run(
+            req.headers['x-user-nombre'], email, 'platform_jit', req.headers['x-user-rol']
+          );
+          usuario = db.prepare('SELECT * FROM usuarios WHERE email = ?').get(email);
+        }
+        if (!usuario || !usuario.activo) return res.status(401).json({ error: 'Usuario inactivo' });
+        req.usuario = { ...usuario, _permisos_globales: JSON.parse(req.headers['x-user-permisos'] || '[]') };
+        if (rolesPermitidos.length && !rolesPermitidos.includes(usuario.rol))
+          return res.status(403).json({ error: 'Sin permisos para esta acción' });
+        return next();
+      }
+
       const authHeader = req.headers['authorization'];
 
-      // Platform JWT first
+      // Platform JWT second
       if (authHeader?.startsWith('Bearer ') && PLATFORM_JWT_SECRET) {
         try {
           const payload = jwt.verify(authHeader.slice(7), PLATFORM_JWT_SECRET);
