@@ -1,16 +1,17 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# ── horix-platform installer ──
+# ── horix-erp installer ──
 # Uso: sudo bash install.sh [test|prod]
-#   test → subdominios .dev.local con SSL autofirmado
-#   prod → path-based en horixvitamar.fortiddns.com con Let's Encrypt
+#   test → path-based con SSL autofirmado (default)
+#   prod → path-based con Let's Encrypt
 
 MODE="${1:-test}"
-CONFIG="/opt/horix-platform/config.env"
-INSTALL_DIR="/opt/horix-platform"
+CONFIG="/opt/horix-erp/config.env"
+INSTALL_DIR="/opt/horix-erp"
+PLATFORM_DIR="$(cd "$(dirname "$0")" && pwd)"
 
-echo "=== horix-platform installer ($MODE) ==="
+echo "=== horix-erp installer ($MODE) ==="
 
 # --- Cargar o crear config ---
 if [ -f "$CONFIG" ]; then
@@ -20,14 +21,14 @@ else
   mkdir -p "$INSTALL_DIR"
 
   if [ "$MODE" = "prod" ]; then
-    read -rp "Dominio (ej: miapp.midominio.com): " DOMAIN
+    read -rp "Dominio (ej: erp.midominio.com): " DOMAIN
     SHELL_HOST=$DOMAIN; HORIX_HOST=$DOMAIN; DOCFLOW_HOST=$DOMAIN
     SHELL_PORT=443; HORIX_PORT=443; DOCFLOW_PORT=443
   else
-    SHELL_HOST=shell.dev.local
-    HORIX_HOST=horix.dev.local
-    DOCFLOW_HOST=docflow.dev.local
-    SHELL_PORT=8443; HORIX_PORT=8444; DOCFLOW_PORT=8445
+    SHELL_HOST=localhost
+    HORIX_HOST=localhost
+    DOCFLOW_HOST=localhost
+    SHELL_PORT=8443; HORIX_PORT=8443; DOCFLOW_PORT=8443
   fi
 
   cat > "$CONFIG" <<EOF
@@ -42,8 +43,6 @@ HORIX_INTERNAL_PORT=3000
 DOCFLOW_INTERNAL_PORT=3100
 MCP_GATEWAY_PORT=3002
 JWT_SECRET=$(openssl rand -hex 32)
-HORIX_REPO=https://github.com/Kernel-Panic92/Horix.git
-DOCFLOW_REPO=https://github.com/Kernel-Panic92/docflow.git
 INSTALL_DIR=$INSTALL_DIR
 EOF
   source "$CONFIG"
@@ -56,7 +55,7 @@ echo "MCP:     https://$SHELL_HOST:$SHELL_PORT/mcp"
 
 # --- Dependencias base ---
 echo ">>> Verificando dependencias..."
-for cmd in node npm git nginx pm2 openssl envsubst; do
+for cmd in node npm nginx pm2 openssl envsubst; do
   if ! command -v "$cmd" &>/dev/null; then
     echo "Falta $cmd. Instalando..."
     case "$cmd" in
@@ -76,7 +75,7 @@ if [ "$MODE" = "test" ]; then
       openssl req -x509 -nodes -days 3650 -newkey rsa:2048 \
         -keyout "/etc/ssl/$name/key.pem" \
         -out "/etc/ssl/$name/cert.pem" \
-        -subj "/CN=${name}.dev.local/O=HorixPlatform/C=CO" 2>/dev/null
+        -subj "/CN=${name}.dev.local/O=HorixERP/C=CO" 2>/dev/null
     fi
   done
 else
@@ -85,55 +84,19 @@ else
   certbot --nginx -d "$SHELL_HOST" --non-interactive --agree-tos -m "admin@$SHELL_HOST" 2>/dev/null || true
 fi
 
-# --- Módulos via git submodules ---
-PLATFORM_DIR="$(cd "$(dirname "$0")" && pwd)"
-echo ">>> Platform dir: $PLATFORM_DIR"
+# --- Copiar todo a $INSTALL_DIR ---
+echo ">>> Copiando archivos..."
+mkdir -p "$INSTALL_DIR/shell" "$INSTALL_DIR/nginx" "$INSTALL_DIR/modules/horix" "$INSTALL_DIR/modules/docflow" "$INSTALL_DIR/mcp-gateway"
 
-echo ">>> Inicializando submodules..."
-if [ -d "$PLATFORM_DIR/.git" ]; then
-  cd "$PLATFORM_DIR"
-  git submodule update --init --recursive 2>/dev/null || echo "  (no hay submodules registrados)"
-  # Checkout branches defined in .gitmodules
-  git submodule foreach -q --recursive '
-    branch="$(git config -f $toplevel/.gitmodules submodule.$name.branch || echo main)"
-    git checkout "$branch" 2>/dev/null && echo "  Submodulo $name actualizado a $branch"
-  ' 2>/dev/null || true
-else
-  echo "  No es un repo git — usando directorios existentes"
-  mkdir -p "$INSTALL_DIR/modules"
-  for name in horix docflow; do
-    if [ -d "$HOME/$name" ] && [ -d "$HOME/$name/.git" ]; then
-      echo "  Vinculando ~/$name → $INSTALL_DIR/modules/$name"
-      ln -sfn "$HOME/$name" "$INSTALL_DIR/modules/$name"
-    else
-      echo "  ADVERTENCIA: ~/$name no existe, instala manualmente"
-    fi
-  done
-fi
-
-# Copiar shell, nginx, mcp-gateway y módulos a $INSTALL_DIR
-echo ">>> Copiando archivos de plataforma..."
-mkdir -p "$INSTALL_DIR/shell" "$INSTALL_DIR/nginx" "$INSTALL_DIR/modules"
-cp -r "$PLATFORM_DIR/shell/"* "$INSTALL_DIR/shell/"
-cp -r "$PLATFORM_DIR/mcp-gateway" "$INSTALL_DIR/"
-mkdir -p "$INSTALL_DIR/nginx"
-
-# Copiar submódulos (se inicializaron en $PLATFORM_DIR/modules/)
-for mod in horix docflow; do
-  if [ -d "$PLATFORM_DIR/modules/$mod" ]; then
-    echo "  Copiando módulo $mod..."
-    # Si es un symlink (por el fallback de submodule), copiar el destino real
-    if [ -L "$PLATFORM_DIR/modules/$mod" ]; then
-      cp -rL "$PLATFORM_DIR/modules/$mod" "$INSTALL_DIR/modules/"
-    else
-      cp -r "$PLATFORM_DIR/modules/$mod" "$INSTALL_DIR/modules/"
-    fi
-  fi
-done
+cp -r "$PLATFORM_DIR/shell/"*          "$INSTALL_DIR/shell/"
+cp -r "$PLATFORM_DIR/mcp-gateway/"*    "$INSTALL_DIR/mcp-gateway/"
+cp -r "$PLATFORM_DIR/modules/horix/"*  "$INSTALL_DIR/modules/horix/"
+cp -r "$PLATFORM_DIR/modules/docflow/"* "$INSTALL_DIR/modules/docflow/"
+cp    "$PLATFORM_DIR/nginx/"*.conf     "$INSTALL_DIR/nginx/"
 
 # --- Generar shell/config.js desde template ---
 echo ">>> Generando shell/config.js..."
-export MODE
+export MODE HORIX_HOST HORIX_PORT DOCFLOW_HOST DOCFLOW_PORT
 envsubst < "$PLATFORM_DIR/shell/config-template.js" > "$INSTALL_DIR/shell/config.js"
 
 # --- Variables de entorno para cada módulo ---
@@ -188,7 +151,7 @@ echo ">>> Configuración de entorno..."
 setup_env "horix"
 setup_env "docflow"
 
-# --- Instalar dependencias ---
+# --- Instalar dependencias npm ---
 echo ">>> Instalando dependencias npm..."
 for mod in horix docflow; do
   if [ -d "$INSTALL_DIR/modules/$mod" ]; then
@@ -215,11 +178,11 @@ fi
 # --- Nginx ---
 echo ">>> Configurando nginx..."
 if [ "$MODE" = "test" ]; then
-  cp "$PLATFORM_DIR/nginx/platform-test.conf" /etc/nginx/sites-available/platform
+  cp "$PLATFORM_DIR/nginx/platform-test.conf" /etc/nginx/sites-available/horix-erp
 else
-  cp "$PLATFORM_DIR/nginx/platform-prod.conf" /etc/nginx/sites-available/platform
+  cp "$PLATFORM_DIR/nginx/platform-prod.conf" /etc/nginx/sites-available/horix-erp
 fi
-ln -sf /etc/nginx/sites-available/platform /etc/nginx/sites-enabled/platform
+ln -sf /etc/nginx/sites-available/horix-erp /etc/nginx/sites-enabled/horix-erp
 rm -f /etc/nginx/sites-enabled/default
 
 nginx -t && systemctl reload nginx
@@ -254,7 +217,3 @@ echo "Horix:   https://$HORIX_HOST:$HORIX_PORT"
 echo "DocFlow: https://$DOCFLOW_HOST:$DOCFLOW_PORT"
 echo "MCP:     https://$SHELL_HOST:$SHELL_PORT/mcp"
 echo ""
-if [ "$MODE" = "test" ]; then
-  echo "Agrega a /etc/hosts de la VM:"
-  echo "  127.0.0.1  $SHELL_HOST $HORIX_HOST $DOCFLOW_HOST"
-fi
