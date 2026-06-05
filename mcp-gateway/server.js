@@ -40,7 +40,23 @@ db.exec(`
     rol TEXT NOT NULL,
     permiso_id TEXT NOT NULL REFERENCES permisos(id),
     PRIMARY KEY (rol, permiso_id)
-  )
+  );
+
+  CREATE TABLE IF NOT EXISTS audit_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    modulo TEXT NOT NULL,
+    tipo TEXT NOT NULL,
+    usuario_id TEXT,
+    usuario_email TEXT,
+    descripcion TEXT NOT NULL DEFAULT '',
+    ip TEXT,
+    metadata TEXT,
+    creado TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_audit_log_modulo ON audit_log(modulo);
+  CREATE INDEX IF NOT EXISTS idx_audit_log_creado ON audit_log(creado);
+  CREATE INDEX IF NOT EXISTS idx_audit_log_tipo ON audit_log(tipo)
 `);
 
 // ── Seed permisos ──
@@ -64,6 +80,8 @@ const PERMISOS = [
   ['docflow:backup',    'Backup DocFlow',   'Gestionar backups de DocFlow',           'docflow'],
   ['docflow:admin',     'Admin DocFlow',    'Administración de DocFlow',              'docflow'],
   ['shell:admin',       'Admin Shell',      'Panel de administración del launcher',   'shell'],
+  ['gateway:backup',    'Backup central',   'Gestionar backup centralizado',           'gateway'],
+  ['gateway:audit',     'Auditoría central','Ver auditoría centralizada',              'gateway'],
 ];
 const insPermiso = db.prepare('INSERT OR IGNORE INTO permisos (id, nombre, descripcion, modulo) VALUES (?, ?, ?, ?)');
 for (const p of PERMISOS) insPermiso.run(...p);
@@ -99,6 +117,10 @@ if (!seedUser) {
   db.prepare('INSERT INTO usuarios (nombre, email, password_hash, rol) VALUES (?, ?, ?, ?)').run('Comprador Demo', seedEmail, hash, 'comprador');
   console.log('  Usuario demo creado');
 }
+
+// ── Backup directory ──
+const BACKUP_DIR = path.join(__dirname, 'backups');
+if (!require('fs').existsSync(BACKUP_DIR)) require('fs').mkdirSync(BACKUP_DIR, { recursive: true });
 
 // ── DocFlow PostgreSQL (used by MCP tools) ──
 let pgPool = null;
@@ -353,6 +375,103 @@ app.put('/api/admin/permisos/rol/:rol', verificarToken, soloAdmin, (req, res) =>
   });
   txn();
   res.json({ ok: true, rol, permisos });
+});
+
+// ── Centralized Backup Orchestration ──
+app.post('/api/admin/backup', verificarToken, soloAdmin, async (req, res) => {
+  try {
+    const sysToken = jwt.sign({ id: 0, email: 'system@horix.com', nombre: 'System', rol: 'admin', permisos: [] }, JWT_SECRET, { expiresIn: '2m' });
+    const callModule = async (url) => {
+      const r = await fetch(url, { headers: { 'Authorization': `Bearer ${sysToken}` }, signal: AbortSignal.timeout(30000) });
+      if (!r.ok) throw new Error(`${url} responded ${r.status}: ${await r.text().catch(() => '')}`);
+      return r.json();
+    };
+    const [horixData, docflowData] = await Promise.all([
+      callModule(MODULE_BACKENDS.horix + '/api/backup/export'),
+      callModule(MODULE_BACKENDS.docflow + '/api/backup/export'),
+    ]);
+    const combined = { generado: new Date().toISOString(), version: '2.0', app: 'Horix-Platform', horix: horixData, docflow: docflowData };
+    const AdmZip = require('adm-zip');
+    const zip = new AdmZip();
+    zip.addFile('backup.json', Buffer.from(JSON.stringify(combined, null, 2), 'utf8'));
+    const fecha = new Date().toISOString().slice(0, 10);
+    const ts = Date.now();
+    const filename = `platform_backup_${fecha}_${ts}.zip`;
+    const filepath = path.join(BACKUP_DIR, filename);
+    zip.writeZip(filepath);
+    const size = require('fs').statSync(filepath).size;
+    db.prepare("INSERT INTO audit_log (modulo, tipo, usuario_id, usuario_email, descripcion, metadata) VALUES ('gateway','backup',?,?,'Backup completo generado',?)").run(String(req.usuario.id), req.usuario.email, JSON.stringify({ filename, size }));
+    res.json({ ok: true, filename, size, message: 'Backup completado' });
+  } catch (e) {
+    console.error('[Backup Orchestrator] Error:', e.message);
+    res.status(500).json({ error: 'Error generando backup unificado: ' + e.message });
+  }
+});
+
+app.get('/api/admin/backup/lista', verificarToken, soloAdmin, (req, res) => {
+  try {
+    const fs = require('fs');
+    if (!fs.existsSync(BACKUP_DIR)) return res.json([]);
+    const archivos = fs.readdirSync(BACKUP_DIR).filter(f => f.startsWith('platform_backup_') && f.endsWith('.zip'))
+      .map(f => { const st = fs.statSync(path.join(BACKUP_DIR, f)); return { nombre: f, tamaño: st.size, fecha: st.mtime.toISOString() }; })
+      .sort((a, b) => new Date(b.fecha) - new Date(a.fecha)).slice(0, 10);
+    res.json(archivos);
+  } catch (e) { console.error('[Backup List] Error:', e.message); res.status(500).json({ error: 'Error listando backups' }); }
+});
+
+app.get('/api/admin/backup/descargar/:filename', verificarToken, soloAdmin, (req, res) => {
+  const { filename } = req.params;
+  if (!/^platform_backup_[\w\-]+\.zip$/.test(filename)) return res.status(400).json({ error: 'Nombre inválido' });
+  const filepath = path.join(BACKUP_DIR, filename);
+  if (!require('fs').existsSync(filepath)) return res.status(404).json({ error: 'Archivo no encontrado' });
+  res.download(filepath, filename);
+});
+
+app.delete('/api/admin/backup/:filename', verificarToken, soloAdmin, (req, res) => {
+  const { filename } = req.params;
+  if (!/^platform_backup_[\w\-]+\.zip$/.test(filename)) return res.status(400).json({ error: 'Nombre inválido' });
+  const filepath = path.join(BACKUP_DIR, filename);
+  if (!require('fs').existsSync(filepath)) return res.status(404).json({ error: 'Archivo no encontrado' });
+  require('fs').unlinkSync(filepath);
+  res.json({ ok: true });
+});
+
+// ── Centralized Audit ──
+app.post('/api/admin/audit/log', verificarToken, soloAdmin, (req, res) => {
+  const { modulo, tipo, usuario_id, usuario_email, descripcion, ip, metadata } = req.body;
+  if (!modulo || !tipo) return res.status(400).json({ error: 'modulo y tipo son requeridos' });
+  try {
+    db.prepare("INSERT INTO audit_log (modulo, tipo, usuario_id, usuario_email, descripcion, ip, metadata) VALUES (?,?,?,?,?,?,?)").run(
+      modulo, tipo, usuario_id || null, usuario_email || null, descripcion || '', ip || null, metadata ? JSON.stringify(metadata) : null
+    );
+    res.json({ ok: true });
+  } catch (e) { console.error('[Audit Log] Error:', e.message); res.status(500).json({ error: 'Error registrando auditoría' }); }
+});
+
+app.get('/api/admin/audit', verificarToken, soloAdmin, (req, res) => {
+  try {
+    const { modulo, tipo, page = 1, limit = 100 } = req.query;
+    const offset = (parseInt(page) - 1) * parseInt(limit);
+    const where = []; const params = [];
+    if (modulo) { where.push('modulo = ?'); params.push(modulo); }
+    if (tipo) { where.push('tipo = ?'); params.push(tipo); }
+    const wh = where.length ? 'WHERE ' + where.join(' AND ') : '';
+    const total = db.prepare(`SELECT COUNT(*) as cnt FROM audit_log ${wh}`).get(...params).cnt;
+    const rows = db.prepare(`SELECT * FROM audit_log ${wh} ORDER BY creado DESC LIMIT ? OFFSET ?`).all(...params, parseInt(limit), offset);
+    res.json({ data: rows, total, page: parseInt(page), limit: parseInt(limit) });
+  } catch (e) { console.error('[Audit List] Error:', e.message); res.status(500).json({ error: 'Error consultando auditoría' }); }
+});
+
+app.get('/api/admin/audit/estadisticas', verificarToken, soloAdmin, (req, res) => {
+  try {
+    const stats = {
+      total: db.prepare('SELECT COUNT(*) as cnt FROM audit_log').get().cnt,
+      hoy: db.prepare("SELECT COUNT(*) as cnt FROM audit_log WHERE creado >= datetime('now', 'start of day')").get().cnt,
+      por_modulo: db.prepare('SELECT modulo, COUNT(*) as cnt FROM audit_log GROUP BY modulo ORDER BY cnt DESC').all(),
+      por_tipo: db.prepare('SELECT tipo, COUNT(*) as cnt FROM audit_log GROUP BY tipo ORDER BY cnt DESC').all(),
+    };
+    res.json(stats);
+  } catch (e) { console.error('[Audit Stats] Error:', e.message); res.status(500).json({ error: 'Error consultando estadísticas' }); }
 });
 
 // ── MCP endpoint ──

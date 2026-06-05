@@ -14,6 +14,28 @@ module.exports = function createBackupRouter({
   const router = express.Router();
   const { soloAdminOBkp, soloAdmin } = middlewares;
 
+  // GET /export — JSON export for MCP Gateway orchestrator
+  router.get('/export', soloAdmin, (req, res) => {
+    try {
+      const cfg = getConfig();
+      const data = { version: '1.0', generado: new Date().toISOString(), app: 'HorasExtra', configuracion: cfg,
+        usuarios: db.prepare('SELECT id,nombre,email,password,rol,sede,activo,cambio_password,creado FROM usuarios').all(),
+        empleados: db.prepare('SELECT * FROM empleados').all(),
+        nominas: db.prepare('SELECT * FROM nominas').all(),
+        registros: db.prepare('SELECT * FROM registros').all(),
+        usuario_empleados: db.prepare('SELECT * FROM usuario_empleados').all(),
+        dashboard_layout: db.prepare('SELECT * FROM dashboard_layout').all(),
+        centros: db.prepare('SELECT * FROM centros').all(),
+        tipos: db.prepare('SELECT * FROM tipos').all(),
+        roles: db.prepare('SELECT * FROM roles').all(),
+        permisos_roles: db.prepare('SELECT * FROM permisos_roles').all(),
+        configuracion: db.prepare('SELECT * FROM configuracion').all(),
+        auditoria_logins: db.prepare('SELECT * FROM auditoria_logins ORDER BY timestamp DESC LIMIT 5000').all(),
+      };
+      res.json(data);
+    } catch (e) { console.error('Error exportando datos:', e.message); res.status(500).json({ error: 'Error exportando datos' }); }
+  });
+
   // GET /
   router.get('/', soloAdminOBkp, (req, res) => {
     try {

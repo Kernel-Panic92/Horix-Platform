@@ -157,6 +157,34 @@ async function generarZip(tipo = 'completo', timestamp = Date.now()) {
   return zip;
 }
 
+// GET /api/backup/export — JSON export for MCP Gateway orchestrator
+router.get('/export', soloAdmin, async (req, res) => {
+  try {
+    const query = async (sql, fallback = []) => {
+      try { const { rows } = await db.query(sql); return rows; } catch (e) { console.warn('[BackupExport] Query warning:', e.message); return fallback; }
+    };
+    const [cfg, usuarios, areas, cats, centros, facturas, eventos] = await Promise.all([
+      query('SELECT clave, valor FROM configuracion'),
+      query('SELECT id, nombre, email, rol, area_id, activo, cambio_password, creado_en FROM usuarios'),
+      query('SELECT * FROM areas'),
+      query('SELECT * FROM categorias_compra'),
+      query('SELECT * FROM centros_operacion'),
+      query(`SELECT f.*, p.nombre AS proveedor_nombre, p.nit AS proveedor_nit, c.nombre AS categoria_nombre, c.color AS categoria_color FROM facturas f LEFT JOIN proveedores p ON p.id = f.proveedor_id LEFT JOIN categorias_compra c ON c.id = f.categoria_id ORDER BY f.recibida_en DESC LIMIT 1000`),
+      query('SELECT * FROM eventos_flujo ORDER BY creado_en DESC LIMIT 5000'),
+    ]);
+    const data = {
+      app: 'DocFlow', version: '1.0', generado: new Date().toISOString(),
+      config: cfg, usuarios: usuarios.map(u => ({ ...u, password_hash: '(backup_excluded)' })),
+      areas, categorias: cats, centros, facturas,
+      eventos: eventos.length,
+    };
+    res.json(data);
+  } catch (err) {
+    console.error('[BackupExport] Error:', err.message);
+    res.status(500).json({ error: 'Error exportando datos: ' + err.message });
+  }
+});
+
 // GET /api/backup — dos pasos: generar y luego descargar
 // Paso 1: /api/backup?action=generate&tipo=config|completo -> devuelve filename
 // Paso 2: /api/backup?action=download&filename=xxx -> descarga el archivo
