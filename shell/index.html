@@ -78,6 +78,22 @@
   #launcher-screen{display:none;}
   #admin-screen{display:none;}
   #admin-form-screen{display:none;}
+  #permisos-screen{display:none;}
+
+  .tabs{display:flex;gap:0;margin-bottom:16px;border-bottom:1px solid var(--border);}
+  .tab{padding:10px 20px;cursor:pointer;font-size:13px;font-weight:600;color:var(--muted);border-bottom:2px solid transparent;transition:all 0.2s;}
+  .tab:hover{color:var(--text);}
+  .tab.active{color:var(--accent);border-bottom-color:var(--accent);}
+  .tab-content{display:none;}
+  .tab-content.active{display:block;}
+
+  .perm-grupo{margin-bottom:20px;}
+  .perm-grupo-titulo{font-weight:700;font-size:13px;text-transform:uppercase;letter-spacing:0.5px;color:var(--muted);margin-bottom:8px;padding-bottom:4px;border-bottom:1px solid var(--border);}
+  .perm-rol-section{background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:16px;margin-bottom:16px;}
+  .perm-rol-titulo{font-weight:600;font-size:14px;margin-bottom:10px;text-transform:capitalize;}
+  .perm-item{display:flex;align-items:center;gap:8px;padding:4px 0;font-size:13px;}
+  .perm-item input[type=checkbox]{width:16px;height:16px;accent-color:var(--accent);cursor:pointer;}
+  .perm-desc{font-size:11px;color:var(--muted);margin-left:24px;}
 
   .back{font-size:12px;color:var(--muted);cursor:pointer;margin-bottom:16px;display:inline-block;}
   .back:hover{color:var(--text);}
@@ -121,22 +137,35 @@
   <div class="footer">horix-platform</div>
 </div>
 
-<div class="box" id="admin-screen" style="width:700px;">
+<div class="box" id="admin-screen" style="width:780px;">
   <div class="header">
     <span class="logout" onclick="logout()">&#10005; Cerrar sesión</span>
     <div class="logo">&#9889; <span>Admin</span></div>
     <div class="user" id="admin-header-user"></div>
   </div>
   <span class="back" onclick="showLauncher()">&larr; Volver al inicio</span>
-  <div style="display:flex;justify-content:space-between;align-items:center;margin:12px 0;">
-    <div style="font-size:14px;font-weight:600;">Usuarios</div>
-    <button class="btn btn-sm" onclick="showUserForm()">+ Nuevo</button>
+  <div class="tabs">
+    <div class="tab active" data-tab="usuarios" onclick="showAdminTab('usuarios')">Usuarios</div>
+    <div class="tab" data-tab="permisos" onclick="showAdminTab('permisos')">Permisos</div>
   </div>
-  <div style="overflow-x:auto;">
-    <table id="users-table">
-      <thead><tr><th>ID</th><th>Nombre</th><th>Email</th><th>Rol</th><th>Estado</th><th>Acción</th></tr></thead>
-      <tbody></tbody>
-    </table>
+  <div class="tab-content active" id="tab-usuarios">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin:12px 0;">
+      <div style="font-size:14px;font-weight:600;">Usuarios</div>
+      <button class="btn btn-sm" onclick="showUserForm()">+ Nuevo</button>
+    </div>
+    <div style="overflow-x:auto;">
+      <table id="users-table">
+        <thead><tr><th>ID</th><th>Nombre</th><th>Email</th><th>Rol</th><th>Estado</th><th>Acción</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+  <div class="tab-content" id="tab-permisos">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin:12px 0;">
+      <div style="font-size:14px;font-weight:600;">Permisos por rol</div>
+      <span style="font-size:11px;color:var(--muted);">Los cambios se guardan automáticamente al marcar/desmarcar</span>
+    </div>
+    <div id="permisos-container"></div>
   </div>
   <div class="footer">horix-platform</div>
 </div>

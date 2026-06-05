@@ -25,8 +25,62 @@ db.exec(`
     activo INTEGER NOT NULL DEFAULT 1,
     creado TEXT NOT NULL DEFAULT (datetime('now')),
     actualizado TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS permisos (
+    id TEXT PRIMARY KEY,
+    nombre TEXT NOT NULL,
+    descripcion TEXT NOT NULL DEFAULT '',
+    modulo TEXT NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS roles_permisos (
+    rol TEXT NOT NULL,
+    permiso_id TEXT NOT NULL REFERENCES permisos(id),
+    PRIMARY KEY (rol, permiso_id)
   )
 `);
+
+// ── Seed permisos ──
+const PERMISOS = [
+  ['horix:empleados',   'Empleados',        'Gestionar empleados',                    'horix'],
+  ['horix:registros',   'Registros',        'Gestionar novedades y registros',        'horix'],
+  ['horix:centros',     'Centros de costo', 'Gestionar centros de costo',             'horix'],
+  ['horix:nomina',      'Nóminas',          'Gestionar períodos de nómina',           'horix'],
+  ['horix:tipos',       'Tipos de concepto','Gestionar tipos de concepto',            'horix'],
+  ['horix:usuarios',    'Usuarios',         'Gestionar usuarios del módulo',          'horix'],
+  ['horix:configuracion','Configuración',   'Configuración del sistema',              'horix'],
+  ['horix:siesa',       'Exportar Siesa',   'Exportar novedades a Siesa',             'horix'],
+  ['horix:auditoria',   'Auditoría',        'Ver registro de auditoría',              'horix'],
+  ['horix:backup',      'Backups',          'Gestionar backups',                      'horix'],
+  ['horix:reportes',    'Reportes',         'Generar reportes',                       'horix'],
+  ['horix:smtp',        'SMTP',             'Configurar correo SMTP',                 'horix'],
+  ['horix:permisos',    'Permisos locales', 'Gestionar permisos locales de Horix',    'horix'],
+  ['docflow:facturas',  'Facturas',         'Gestionar facturas',                     'docflow'],
+  ['docflow:proveedores','Proveedores',     'Gestionar proveedores',                  'docflow'],
+  ['docflow:configuracion','Configuración DocFlow','Configuración del módulo',        'docflow'],
+  ['docflow:backup',    'Backup DocFlow',   'Gestionar backups de DocFlow',           'docflow'],
+  ['docflow:admin',     'Admin DocFlow',    'Administración de DocFlow',              'docflow'],
+  ['shell:admin',       'Admin Shell',      'Panel de administración del launcher',   'shell'],
+];
+const insPermiso = db.prepare('INSERT OR IGNORE INTO permisos (id, nombre, descripcion, modulo) VALUES (?, ?, ?, ?)');
+for (const p of PERMISOS) insPermiso.run(...p);
+
+// ── Seed roles_permisos ──
+const PERMISOS_ADMIN = PERMISOS.map(p => p[0]);
+const PERMISOS_COMPRADOR = ['horix:registros', 'horix:nomina', 'docflow:facturas'];
+
+const seedPermisos = db.prepare('SELECT COUNT(*) as cnt FROM roles_permisos').get();
+if (seedPermisos.cnt === 0) {
+  const insRP = db.prepare('INSERT OR IGNORE INTO roles_permisos (rol, permiso_id) VALUES (?, ?)');
+  for (const p of PERMISOS_ADMIN) insRP.run('admin', p);
+  for (const p of PERMISOS_COMPRADOR) insRP.run('comprador', p);
+  console.log('  Roles_permisos seeded');
+}
+
+function permisosPorRol(rol) {
+  return db.prepare('SELECT permiso_id FROM roles_permisos WHERE rol = ?').all(rol).map(r => r.permiso_id);
+}
 
 const adminEmail = 'admin@horix.com';
 const existing = db.prepare('SELECT id FROM usuarios WHERE email = ?').get(adminEmail);
@@ -100,7 +154,8 @@ app.post('/api/auth/login', async (req, res) => {
     const match = bcrypt.compareSync(password, user.password_hash);
     if (!match) return res.status(401).json({ error: 'Credenciales inválidas' });
 
-    const payload = { id: user.id, email: user.email, nombre: user.nombre, rol: user.rol };
+    const permisos = permisosPorRol(user.rol);
+    const payload = { id: user.id, email: user.email, nombre: user.nombre, rol: user.rol, permisos };
     const unifiedToken = jwt.sign(payload, JWT_SECRET, { expiresIn: '24h' });
 
     db.prepare('UPDATE usuarios SET actualizado = datetime(\'now\') WHERE id = ?').run(user.id);
@@ -112,7 +167,7 @@ app.post('/api/auth/login', async (req, res) => {
     res.json({
       token: unifiedToken,
       jwt: unifiedToken,
-      usuario: { id: user.id, nombre: user.nombre, email: user.email, rol: user.rol }
+      usuario: { id: user.id, nombre: user.nombre, email: user.email, rol: user.rol, permisos }
     });
   } catch (e) {
     console.error('[LOGIN]', e.stack || e.message);
@@ -121,7 +176,9 @@ app.post('/api/auth/login', async (req, res) => {
 });
 
 app.get('/api/auth/me', verificarToken, (req, res) => {
-  res.json(req.usuario);
+  const permisos = req.usuario.permisos || permisosPorRol(req.usuario.rol);
+  const user = db.prepare('SELECT id, nombre, email, rol, activo, creado FROM usuarios WHERE id = ?').get(req.usuario.id);
+  res.json({ ...user, permisos });
 });
 
 // ── Admin: user CRUD ──
@@ -185,6 +242,37 @@ app.delete('/api/admin/usuarios/:id', verificarToken, soloAdmin, (req, res) => {
 
   db.prepare('UPDATE usuarios SET activo = 0, actualizado = datetime(\'now\') WHERE id = ?').run(id);
   res.json({ ok: true });
+});
+
+// ── Admin: permission CRUD ──
+app.get('/api/admin/permisos', verificarToken, soloAdmin, (req, res) => {
+  const all = db.prepare('SELECT * FROM permisos ORDER BY modulo, id').all();
+  res.json(all);
+});
+
+app.get('/api/admin/permisos/roles', verificarToken, soloAdmin, (req, res) => {
+  const roles = db.prepare('SELECT DISTINCT rol FROM roles_permisos ORDER BY rol').all().map(r => r.rol);
+  const result = {};
+  for (const rol of roles) {
+    result[rol] = permisosPorRol(rol);
+  }
+  res.json(result);
+});
+
+app.put('/api/admin/permisos/rol/:rol', verificarToken, soloAdmin, (req, res) => {
+  const { rol } = req.params;
+  const { permisos } = req.body;
+  if (!Array.isArray(permisos)) return res.status(400).json({ error: 'permisos debe ser un array' });
+  if (!['admin', 'comprador'].includes(rol)) return res.status(400).json({ error: 'Rol inválido' });
+
+  const del = db.prepare('DELETE FROM roles_permisos WHERE rol = ?');
+  const ins = db.prepare('INSERT INTO roles_permisos (rol, permiso_id) VALUES (?, ?)');
+  const txn = db.transaction(() => {
+    del.run(rol);
+    for (const p of permisos) ins.run(rol, p);
+  });
+  txn();
+  res.json({ ok: true, rol, permisos });
 });
 
 // ── MCP endpoint ──

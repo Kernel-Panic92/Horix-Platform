@@ -119,7 +119,76 @@ function logout() {
 function showAdmin() {
   document.getElementById('admin-header-user').textContent = user?.nombre || '';
   show('admin-screen');
+  showAdminTab('usuarios');
   loadUsers();
+}
+
+function showAdminTab(tab) {
+  document.querySelectorAll('#admin-screen .tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tab));
+  document.querySelectorAll('#admin-screen .tab-content').forEach(t => t.classList.toggle('active', t.id === 'tab-' + tab));
+  if (tab === 'permisos') cargarPermisos();
+}
+
+async function cargarPermisos() {
+  try {
+    const [permisosRes, rolesRes] = await Promise.all([
+      fetch('/api/admin/permisos', { headers: { 'Authorization': 'Bearer ' + jwtToken } }),
+      fetch('/api/admin/permisos/roles', { headers: { 'Authorization': 'Bearer ' + jwtToken } })
+    ]);
+    if (!permisosRes.ok || !rolesRes.ok) throw new Error('Error al cargar permisos');
+    const todosPermisos = await permisosRes.json();
+    const rolesPermisos = await rolesRes.json();
+
+    const modulos = {};
+    for (const p of todosPermisos) {
+      if (!modulos[p.modulo]) modulos[p.modulo] = [];
+      modulos[p.modulo].push(p);
+    }
+
+    const roles = ['admin', 'comprador'];
+    let html = '';
+    for (const rol of roles) {
+      const rolPerms = rolesPermisos[rol] || [];
+      html += `<div class="perm-rol-section"><div class="perm-rol-titulo">${rol}</div>`;
+      for (const [modulo, perms] of Object.entries(modulos)) {
+        html += `<div class="perm-grupo"><div class="perm-grupo-titulo">${modulo}</div>`;
+        for (const p of perms) {
+          const checked = rolPerms.includes(p.id) ? 'checked' : '';
+          html += `<div class="perm-item">
+            <input type="checkbox" id="perm-${rol}-${p.id}" ${checked} data-rol="${rol}" data-permiso="${p.id}" onchange="guardarPermiso(this)">
+            <label for="perm-${rol}-${p.id}">${p.nombre}</label>
+          </div>
+          <div class="perm-desc">${p.descripcion}</div>`;
+        }
+        html += `</div>`;
+      }
+      html += `</div>`;
+    }
+    document.getElementById('permisos-container').innerHTML = html;
+  } catch (e) {
+    document.getElementById('permisos-container').innerHTML = '<div style="color:var(--danger);">Error: ' + e.message + '</div>';
+  }
+}
+
+let _permSaveTimer = null;
+async function guardarPermiso(el) {
+  clearTimeout(_permSaveTimer);
+  _permSaveTimer = setTimeout(async () => {
+    const rol = el.dataset.rol;
+    const checks = document.querySelectorAll(`#permisos-container input[data-rol="${rol}"]`);
+    const permisos = [];
+    checks.forEach(c => { if (c.checked) permisos.push(c.dataset.permiso); });
+    try {
+      const res = await fetch('/api/admin/permisos/rol/' + rol, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + jwtToken },
+        body: JSON.stringify({ permisos })
+      });
+      if (!res.ok) throw new Error('Error al guardar');
+    } catch (e) {
+      alert('Error al guardar permisos: ' + e.message);
+    }
+  }, 400);
 }
 
 async function loadUsers() {
