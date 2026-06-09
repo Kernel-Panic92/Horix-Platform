@@ -13,6 +13,11 @@ echo "=== horix-erp installer ($MODE) ==="
 
 if [ -f "$CONFIG" ]; then
   source "$CONFIG"
+  if [ -z "${LAUNCHER_SYNC_KEY:-}" ]; then
+    echo ">>> Agregando LAUNCHER_SYNC_KEY a config.env..."
+    LAUNCHER_SYNC_KEY=$(openssl rand -hex 32 2>/dev/null || echo "dev-sync-key")
+    echo "LAUNCHER_SYNC_KEY=$LAUNCHER_SYNC_KEY" >> "$CONFIG"
+  fi
 else
   echo "Configurando entorno..."
   mkdir -p "$INSTALL_DIR"
