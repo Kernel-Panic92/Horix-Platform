@@ -61,10 +61,15 @@ else
 fi
 
 echo ">>> Copiando archivos..."
-cp -r "$PLATFORM_DIR/launcher/"*  "$INSTALL_DIR/launcher/"
-cp -r "$PLATFORM_DIR/modules/horix/"*  "$INSTALL_DIR/modules/horix/"
-cp -r "$PLATFORM_DIR/modules/docflow/"* "$INSTALL_DIR/modules/docflow/"
-cp "$PLATFORM_DIR/nginx/"*.conf "$INSTALL_DIR/nginx/"
+if [ "$PLATFORM_DIR" != "$INSTALL_DIR" ]; then
+  mkdir -p "$INSTALL_DIR/launcher" "$INSTALL_DIR/modules/horix" "$INSTALL_DIR/modules/docflow" "$INSTALL_DIR/nginx"
+  cp -r "$PLATFORM_DIR/launcher/"*  "$INSTALL_DIR/launcher/"
+  cp -r "$PLATFORM_DIR/modules/horix/"*  "$INSTALL_DIR/modules/horix/"
+  cp -r "$PLATFORM_DIR/modules/docflow/"* "$INSTALL_DIR/modules/docflow/"
+  cp "$PLATFORM_DIR/nginx/"*.conf "$INSTALL_DIR/nginx/"
+else
+  echo "  Ya estamos en $INSTALL_DIR — saltando copia"
+fi
 
 echo ">>> Instalando dependencias npm..."
 for mod in launcher modules/horix modules/docflow; do
