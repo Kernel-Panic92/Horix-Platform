@@ -19,12 +19,14 @@ else
   if [ "$MODE" = "prod" ]; then
     read -rp "Dominio (ej: horix.app): " DOMAIN
   fi
+  LAUNCHER_SYNC_KEY=$(openssl rand -hex 32 2>/dev/null || echo "dev-sync-key")
   cat > "$CONFIG" <<EOF
 MODE=$MODE
 DOMAIN=${DOMAIN:-localhost}
 LAUNCHER_PORT=3002
 HORIX_PORT=3000
 DOCFLOW_PORT=3100
+LAUNCHER_SYNC_KEY=$LAUNCHER_SYNC_KEY
 INSTALL_DIR=$INSTALL_DIR
 EOF
   source "$CONFIG"
@@ -90,6 +92,7 @@ HE_SECRET=$(openssl rand -hex 32 2>/dev/null || echo "dev_secret_not_for_prod")
 ADMIN_EMAIL=admin@horix.com
 ADMIN_PASS=admin123
 BASE_URL=http://localhost:$HORIX_PORT
+LAUNCHER_SYNC_KEY=$LAUNCHER_SYNC_KEY
 EOF
 fi
 
@@ -99,6 +102,16 @@ if [ ! -f "$INSTALL_DIR/modules/docflow/.env" ]; then
 PORT=$DOCFLOW_PORT
 NODE_ENV=$([ "$MODE" = "prod" ] && echo "production" || echo "development")
 JWT_SECRET=$(openssl rand -hex 32 2>/dev/null || echo "dev_jwt_secret")
+LAUNCHER_SYNC_KEY=$LAUNCHER_SYNC_KEY
+EOF
+fi
+
+echo ">>> Generando .env para launcher..."
+if [ ! -f "$INSTALL_DIR/launcher/.env" ]; then
+  cat > "$INSTALL_DIR/launcher/.env" <<EOF
+PORT=$LAUNCHER_PORT
+JWT_SECRET=$(openssl rand -hex 32 2>/dev/null || echo "dev_jwt_secret")
+LAUNCHER_SYNC_KEY=$LAUNCHER_SYNC_KEY
 EOF
 fi
 
