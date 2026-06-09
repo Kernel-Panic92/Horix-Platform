@@ -1,0 +1,9 @@
+[submodule "launcher"]
+	path = launcher
+	url = https://github.com/Kernel-Panic92/horix-launcher.git
+[submodule "modules/horix"]
+	path = modules/horix
+	url = https://github.com/Kernel-Panic92/horix-api.git
+[submodule "modules/docflow"]
+	path = modules/docflow
+	url = https://github.com/Kernel-Panic92/docflow-api.git

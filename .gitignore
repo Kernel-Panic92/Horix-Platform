@@ -4,4 +4,8 @@ config.env
 *.log
 .DS_Store
 Thumbs.db
-shell/config.js
+launcher/launcher.db
+launcher/backups/
+modules/horix/horas_extra.db
+modules/horix/backups/
+modules/docflow/backups/

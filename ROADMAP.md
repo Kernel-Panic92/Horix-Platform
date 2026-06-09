@@ -1,6 +1,6 @@
-# 🗺️ Horix ERP — Roadmap
+# Horix ERP — Roadmap
 
-Modular ERP with centralized SSO, MCP Gateway, and path-based micro-frontends.
+Modular ERP with independent micro-frontends, MCP orchestration, and git sub-modules.
 
 ## Architecture
 
@@ -8,80 +8,52 @@ Modular ERP with centralized SSO, MCP Gateway, and path-based micro-frontends.
                      ┌─────────────────────────────────────┐
                      │         Nginx (8443/443)            │
                      │  path-based routing, SSL            │
-                     └──────┬──────┬──────┬──────┬─────────┘
-                            │      │      │      │
-               ┌────────────┘      │      │      └────────────┐
-               ▼                   ▼      ▼                   ▼
-       ┌──────────────┐    ┌──────────┐    ┌──────────┐  ┌────────┐
-       │   Shell SPA  │    │ MCP GW   │    │  Horix   │  │ DocFlow│
-       │  /           │    │ /api     │    │ /horix   │  │/docflow│
-       │  Login+Admin │    │ /mcp     │    │          │  │        │
-       └──────────────┘    │ /:mod/api│    │ Employees│  │Invoices │
-                           └────┬─────┘    │ Payroll  │  │Vendors  │
-                                │          └──────────┘  └────────┘
-                     ┌──────────┴──────────┐
-                     ▼                     ▼
-              ┌──────────────┐    ┌────────────────┐
-              │  SQLite DB   │    │  PostgreSQL    │
-              │  (platform)  │    │  (docflow)     │
-              └──────────────┘    └────────────────┘
+                     └──────┬──────┬──────┬────────────────┘
+                            │      │      │
+               ┌────────────┘      │      └────────────┐
+               ▼                   ▼                   ▼
+       ┌──────────────┐   ┌──────────┐       ┌──────────────┐
+       │  horix-erp   │   │  Horix   │       │   DocFlow    │
+       │  Launcher    │   │  /horix/ │       │  /docflow/   │
+       │  / (Shell)   │   │  API+SPA │       │  API+SPA     │
+       │  /api (Auth) │   │  Port 3000│      │  Port 3100   │
+       │  /mcp (MCP)  │   │  SQLite  │       │  PostgreSQL  │
+       └──────────────┘   └──────────┘       └──────────────┘
+             Git:              Git:                 Git:
+       Kernel-Panic92/    Kernel-Panic92/     Kernel-Panic92/
+       horix-launcher     horix-api           docflow-api
 ```
 
-**MCP Gateway** (`/api/`) — centralized auth, JWT, user/permission management, and API proxy.
-**Horix** (`/horix/`) — employee hours, payroll, reports.
-**DocFlow** (`/docflow/`) — invoice management, vendors, approvals.
-**Shell** (`/`) — login, module launcher, admin panels.
+**Launcher** — Shell SPA, auth, MCP Gateway (routes to modules by prefix).
+**Horix** — employee hours, payroll, reports.
+**DocFlow** — invoice management, vendors, approvals.
+
+Each module is a standalone git submodule with its own DB, auth, and API.
+MCP is aggregated by the Launcher via HTTP calls to each module's `/mcp`.
 
 ## Current State
 
-- Centralized SSO with JWT (24h expiry, `platform_jwt` cookie)
-- MCP Gateway proxies `/horix/api/` and `/docflow/api/` with `X-User-*` headers
-- Centralized RBAC: 19 permissions across 2 roles, checked per-module
+- 3 independent repos managed as git submodules
 - Path-based routing on single port (8443 test / 443 prod)
+- No shared JWT or SSO between modules
+- MCP aggregated by Launcher (prefix-based routing)
 
 ## Roadmap
 
-### Week 1 — Consolidate shared code into MCP Gateway
+### Phase 1 — Stability
+- [x] Split into submodules (launcher, horix-api, docflow-api)
+- [x] Each module handles its own auth independently
+- [x] Nginx routes each module directly (no proxy)
+- [x] Launcher aggregates MCP by prefix
 
-Move backup orchestration, audit logging, and system config from individual modules into the MCP Gateway.
+### Phase 2 — Improvements
+- [ ] Service tokens for module-to-module communication
+- [ ] Unified audit log via Launcher API (optional POST)
+- [ ] Backup scripts for each module
 
-```
-mcp-gateway/
-├── server.js          ← Auth, proxy, routes
-├── routes/
-│   ├── backup.js      ← Central backup orchestrator
-│   ├── audit.js       ← Centralized audit log
-│   └── config.js      ← Global system config
-```
-
-Modules become thin: only business logic, no admin infrastructure.
-
-### Week 2 — Clean up modules
-
-Remove duplicate admin code from Horix and DocFlow (`usuarios.js`, `backup.js`, `auditoria.js`). Each module keeps only its domain logic.
-
-```
-horix/src/routes/         docflow/src/routes/
-├── empleados.js          ├── facturas.js
-├── registros.js          ├── proveedores.js
-├── nomina.js             └── (no admin code)
-├── centros.js
-├── tipos.js
-└── (no admin code)
-```
-
-### Week 3 — Database unification
-
-Migrate Horix from SQLite to PostgreSQL, sharing the same database instance as DocFlow. Remove SQLite dependency.
-
-### Installer
-
-`install.sh` handles everything: copies files from repo, creates configs, runs migrations, starts PM2 processes. One command for any Linux server.
-
-## Future
-
-Adding a new module (e.g., CRM):
-1. Add permissions to MCP Gateway seed
-2. Create the module (API + DB tables)
-3. Add `location /crm/api/` and `location /crm/` to nginx
-4. The module reads `X-User-*` headers — zero auth code
+### Future
+- Adding a new module (e.g., CRM):
+  1. Create new repo with its own `/mcp`
+  2. Add as submodule: `git submodule add <repo> modules/crm`
+  3. Add `location /crm/` to nginx
+  4. Add to `launcher/modules.json`
