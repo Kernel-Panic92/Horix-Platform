@@ -81,6 +81,27 @@ const PLATFORM_CONFIG = {
 };
 CONFIGEOF
 
+echo ">>> Generando .env para horix..."
+if [ ! -f "$INSTALL_DIR/modules/horix/.env" ]; then
+  cat > "$INSTALL_DIR/modules/horix/.env" <<EOF
+PORT=$HORIX_PORT
+NODE_ENV=$([ "$MODE" = "prod" ] && echo "production" || echo "development")
+HE_SECRET=$(openssl rand -hex 32 2>/dev/null || echo "dev_secret_not_for_prod")
+ADMIN_EMAIL=admin@horix.com
+ADMIN_PASS=admin123
+BASE_URL=http://localhost:$HORIX_PORT
+EOF
+fi
+
+echo ">>> Generando .env para docflow..."
+if [ ! -f "$INSTALL_DIR/modules/docflow/.env" ]; then
+  cat > "$INSTALL_DIR/modules/docflow/.env" <<EOF
+PORT=$DOCFLOW_PORT
+NODE_ENV=$([ "$MODE" = "prod" ] && echo "production" || echo "development")
+JWT_SECRET=$(openssl rand -hex 32 2>/dev/null || echo "dev_jwt_secret")
+EOF
+fi
+
 echo ">>> Instalando dependencias npm..."
 for mod in launcher modules/horix modules/docflow; do
   if [ -d "$INSTALL_DIR/$mod" ]; then
