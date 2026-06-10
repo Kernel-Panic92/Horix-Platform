@@ -13,23 +13,16 @@ echo "=== Platform installer ($MODE) ==="
 
 if [ -f "$CONFIG" ]; then
   source "$CONFIG"
-  if [ -z "${LAUNCHER_SYNC_KEY:-}" ]; then
-    echo ">>> Agregando LAUNCHER_SYNC_KEY a config.env..."
-    LAUNCHER_SYNC_KEY=$(openssl rand -hex 32 2>/dev/null || echo "dev-sync-key")
-    echo "LAUNCHER_SYNC_KEY=$LAUNCHER_SYNC_KEY" >> "$CONFIG"
-  fi
 else
   echo "Configurando entorno..."
   mkdir -p "$INSTALL_DIR"
   if [ "$MODE" = "prod" ]; then
     read -rp "Dominio (ej: horix.app): " DOMAIN
   fi
-  LAUNCHER_SYNC_KEY=$(openssl rand -hex 32 2>/dev/null || echo "dev-sync-key")
   cat > "$CONFIG" <<EOF
 MODE=$MODE
 DOMAIN=${DOMAIN:-localhost}
 LAUNCHER_PORT=3002
-LAUNCHER_SYNC_KEY=$LAUNCHER_SYNC_KEY
 INSTALL_DIR=$INSTALL_DIR
 EOF
   source "$CONFIG"
@@ -77,7 +70,6 @@ if [ ! -f "$INSTALL_DIR/launcher/.env" ]; then
   cat > "$INSTALL_DIR/launcher/.env" <<EOF
 PORT=$LAUNCHER_PORT
 JWT_SECRET=$(openssl rand -hex 32 2>/dev/null || echo "dev_jwt_secret")
-LAUNCHER_SYNC_KEY=$LAUNCHER_SYNC_KEY
 EOF
 fi
 
