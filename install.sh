@@ -28,7 +28,7 @@ EOF
   source "$CONFIG"
 fi
 
-echo "URL:     https://$DOMAIN"
+echo "URL:     https://$DOMAIN (navegador) o http://localhost:3002 (directo)"
 
 echo ">>> Verificando dependencias..."
 for cmd in node npm nginx pm2 openssl; do
@@ -79,16 +79,6 @@ if [ -d "$INSTALL_DIR/launcher" ]; then
   npm install --omit=dev 2>/dev/null || true
 fi
 
-echo ">>> Configurando nginx..."
-if [ "$MODE" = "test" ]; then
-  cp "$PLATFORM_DIR/nginx/platform-test.conf" /etc/nginx/sites-available/horix-erp
-else
-  cp "$PLATFORM_DIR/nginx/platform-prod.conf" /etc/nginx/sites-available/horix-erp
-fi
-ln -sf /etc/nginx/sites-available/horix-erp /etc/nginx/sites-enabled/horix-erp
-rm -f /etc/nginx/sites-enabled/default
-nginx -t && systemctl reload nginx
-
 echo ">>> Arrancando servicios..."
 pm2 delete horix-launcher 2>/dev/null || true
 
@@ -99,5 +89,10 @@ fi
 pm2 save
 
 echo ""
+echo ">>> Para configurar nginx desde la UI del launcher:"
+echo "    Admin → Nginx → 'Generar y recargar'"
+echo "    (requiere registrar previamente los módulos con su prefijo proxy)"
+
 echo "=== Instalación completada ==="
-echo "URL: https://$DOMAIN"
+echo "Launcher: http://localhost:$LAUNCHER_PORT"
+echo "Admin:    http://localhost:$LAUNCHER_PORT (admin@horix.com / admin123)"
