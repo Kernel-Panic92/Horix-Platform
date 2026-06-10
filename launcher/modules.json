@@ -1,0 +1,10 @@
+{
+  "horix": {
+    "url": "http://localhost:3000",
+    "token": ""
+  },
+  "docflow": {
+    "url": "http://localhost:3100",
+    "token": ""
+  }
+}
