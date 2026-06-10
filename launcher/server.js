@@ -64,20 +64,6 @@ try { db.exec('ALTER TABLE modulos_plataforma ADD COLUMN proxy_prefix TEXT NOT N
 // Seed public_url from url if empty
 db.prepare("UPDATE modulos_plataforma SET public_url = url WHERE public_url = '' AND url != ''").run();
 
-// Seed modules from modules.json if table empty
-const existingMods = db.prepare('SELECT COUNT(*) as c FROM modulos_plataforma').get();
-if (existingMods.c === 0) {
-  let modsFromFile = {};
-  try { modsFromFile = JSON.parse(fs.readFileSync(path.join(__dirname, 'modules.json'), 'utf8')); } catch {}
-  const icons = { horix: '⏰', docflow: '📄' };
-  const descs = { horix: 'Gestión de horas extra y empleados', docflow: 'Facturas, proveedores y documentos' };
-  let orden = 0;
-  const ins = db.prepare('INSERT INTO modulos_plataforma (id, nombre, descripcion, url, public_url, icon, mcp_enabled, activo, orden) VALUES (?, ?, ?, ?, ?, ?, 1, 1, ?)');
-  for (const [id, cfg] of Object.entries(modsFromFile)) {
-    ins.run(id, id.charAt(0).toUpperCase() + id.slice(1), descs[id] || '', cfg.url || '', cfg.public_url || cfg.url || '', icons[id] || '📦', orden++);
-  }
-}
-
 function getModulos(onlyMcp) {
   let sql = 'SELECT * FROM modulos_plataforma WHERE activo = 1';
   if (onlyMcp) sql += ' AND mcp_enabled = 1';
@@ -183,6 +169,14 @@ app.delete('/api/admin/usuarios/:id', verificarToken, soloAdmin, (req, res) => {
   const user = db.prepare('SELECT * FROM usuarios WHERE id = ?').get(id);
   if (!user) return res.status(404).json({ error: 'No encontrado' });
   db.prepare("UPDATE usuarios SET activo = 0, actualizado = datetime('now') WHERE id = ?").run(id);
+  res.json({ ok: true });
+});
+
+app.delete('/api/admin/usuarios/:id/permanent', verificarToken, soloAdmin, (req, res) => {
+  const id = parseInt(req.params.id);
+  if (isNaN(id) || id === req.usuario.id) return res.status(400).json({ error: 'ID inválido o no puedes eliminarte' });
+  const result = db.prepare('DELETE FROM usuarios WHERE id = ?').run(id);
+  if (result.changes === 0) return res.status(404).json({ error: 'No encontrado' });
   res.json({ ok: true });
 });
 

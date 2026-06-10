@@ -135,6 +135,7 @@ async function loadUsers() {
         <td class="actions">
           <button class="btn btn-sm" onclick="editUser(${u.id})">Editar</button>
           ${u.activo ? `<button class="btn btn-sm btn-danger" onclick="deleteUser(${u.id})">Desactivar</button>` : ''}
+          ${!u.activo ? `<button class="btn btn-sm btn-danger" onclick="deleteUserPermanent(${u.id})">Eliminar</button>` : ''}
         </td>
       </tr>
     `).join('');
@@ -220,6 +221,23 @@ async function deleteUser(id) {
     if (!res.ok) {
       const data = await res.json().catch(() => ({}));
       throw new Error(data.error || 'Error al desactivar');
+    }
+    loadUsers();
+  } catch (e) {
+    alert(e.message);
+  }
+}
+
+async function deleteUserPermanent(id) {
+  if (!confirm('¿Eliminar permanentemente este usuario? Esta acción no se puede deshacer.')) return;
+  try {
+    const res = await fetch(`/api/admin/usuarios/${id}/permanent`, {
+      method: 'DELETE',
+      headers: { 'Authorization': 'Bearer ' + jwtToken }
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error || 'Error al eliminar');
     }
     loadUsers();
   } catch (e) {
