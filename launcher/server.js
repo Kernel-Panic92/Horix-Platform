@@ -258,7 +258,7 @@ app.put('/api/admin/mcp/:id', verificarToken, soloAdmin, (req, res) => {
   res.json({ ok: true });
 });
 
-app.post('/api/admin/mcp/:id/test', verificarToken, soloAdmin, async (req, res) => {
+app.all('/api/admin/mcp/:id/test', verificarToken, soloAdmin, async (req, res) => {
   const mod = db.prepare('SELECT * FROM modulos_plataforma WHERE id = ?').get(req.params.id);
   if (!mod) return res.status(404).json({ error: 'No encontrado' });
   try {
