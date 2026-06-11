@@ -574,10 +574,15 @@ async function forwardMcpRequest(mod, body, timeout = 30000) {
 }
 
 // ── MCP Gateway ──
-app.post('/mcp', async (req, res) => {
-  const msg = req.body;
-  if (!msg || msg.jsonrpc !== '2.0') return res.status(400).json({ jsonrpc: '2.0', error: { code: -32600, message: 'Invalid Request' }, id: null });
+const mcpSseClients = new Map();
+
+async function processMcpMessage(msg) {
+  if (!msg || msg.jsonrpc !== '2.0') return { jsonrpc: '2.0', error: { code: -32600, message: 'Invalid Request' }, id: null };
   const id = msg.id ?? null;
+
+  if (msg.method === 'initialize') {
+    return { jsonrpc: '2.0', result: { protocolVersion: '2025-03-26', serverInfo: { name: 'horix-launcher', version: '1.0.0' }, capabilities: { tools: {} } }, id };
+  }
 
   if (msg.method === 'tools/list') {
     const allTools = [];
@@ -590,30 +595,83 @@ app.post('/mcp', async (req, res) => {
         }
       } catch (e) { console.warn(`[MCP] Failed to list tools from ${m.id}:`, e.message); }
     }
-    return res.json({ jsonrpc: '2.0', result: { tools: allTools }, id });
+    return { jsonrpc: '2.0', result: { tools: allTools }, id };
   }
 
   if (msg.method === 'tools/call') {
     const { name, arguments: args } = msg.params || {};
-    if (!name) return res.json({ jsonrpc: '2.0', error: { code: -32602, message: 'Missing tool name' }, id });
+    if (!name) return { jsonrpc: '2.0', error: { code: -32602, message: 'Missing tool name' }, id };
     const parts = name.split('_');
     const prefix = parts[0];
     const modulos = getModulos(true);
     const mod = modulos.find(m => m.id === prefix);
-    if (!mod) return res.json({ jsonrpc: '2.0', error: { code: -32601, message: 'Unknown or disabled module: ' + prefix }, id });
+    if (!mod) return { jsonrpc: '2.0', error: { code: -32601, message: 'Unknown or disabled module: ' + prefix }, id };
     try {
       const data = await forwardMcpRequest(mod, { jsonrpc: '2.0', id, method: 'tools/call', params: { name: parts.slice(1).join('_'), arguments: args } }, 30000);
-      return res.json(data);
+      return data;
     } catch (e) {
-      return res.json({ jsonrpc: '2.0', error: { code: -32000, message: 'Error contacting ' + prefix + ': ' + e.message }, id });
+      return { jsonrpc: '2.0', error: { code: -32000, message: 'Error contacting ' + prefix + ': ' + e.message }, id };
     }
   }
 
-  if (msg.method === 'notifications/initialized') return res.status(202).end();
-  return res.status(400).json({ jsonrpc: '2.0', error: { code: -32601, message: 'Method not found' }, id });
+  if (msg.method === 'notifications/initialized') return { jsonrpc: '2.0', result: null, id: null };
+  return { jsonrpc: '2.0', error: { code: -32601, message: 'Method not found' }, id };
+}
+
+// SSE endpoint for MCP clients (Claude Desktop, Cline, etc.)
+app.get('/mcp', (req, res) => {
+  const sessionId = crypto.randomUUID();
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    'Connection': 'keep-alive',
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Headers': '*',
+  });
+  res.write(`event: endpoint\ndata: /mcp?sessionId=${sessionId}\n\n`);
+  const client = { res, connected: true };
+  mcpSseClients.set(sessionId, client);
+  const keepAlive = setInterval(() => { if (client.connected) res.write(': keepalive\n\n'); }, 15000);
+  req.on('close', () => {
+    client.connected = false;
+    clearInterval(keepAlive);
+    mcpSseClients.delete(sessionId);
+  });
 });
 
-app.get('/mcp', (req, res) => res.json({ status: 'ok', server: 'horix-launcher' }));
+// POST handler — supports both SSE-session and direct modes
+app.post('/mcp', async (req, res) => {
+  const sessionId = req.query.sessionId;
+  const msg = req.body;
+
+  if (sessionId) {
+    const client = mcpSseClients.get(sessionId);
+    if (!client?.connected) return res.status(404).json({ error: 'Session not found or closed' });
+    try {
+      const result = await processMcpMessage(msg);
+      if (msg.id != null) {
+        client.res.write(`event: message\ndata: ${JSON.stringify(result)}\n\n`);
+      }
+      res.status(202).end();
+    } catch (e) {
+      client.res.write(`event: error\ndata: ${JSON.stringify({ error: e.message })}\n\n`);
+      res.status(500).end();
+    }
+    return;
+  }
+
+  // Direct mode (no SSE session) — existing behavior
+  const result = await processMcpMessage(msg);
+  if (msg?.method === 'notifications/initialized') return res.status(202).end();
+  return res.json(result);
+});
+
+app.options('/mcp', (req, res) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', '*');
+  res.status(204).end();
+});
 
 app.use(express.static(path.join(__dirname, 'shell')));
 app.get('*', (req, res) => {
