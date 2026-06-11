@@ -210,6 +210,7 @@
     <div class="tab active" data-tab="usuarios" onclick="showAdminTab('usuarios')">Usuarios</div>
     <div class="tab" data-tab="modulos" onclick="showAdminTab('modulos')">Módulos</div>
     <div class="tab" data-tab="mcp" onclick="showAdminTab('mcp')">MCP</div>
+    <div class="tab" data-tab="smtp" onclick="showAdminTab('smtp')">SMTP</div>
     <div class="tab" data-tab="nginx" onclick="showAdminTab('nginx')">Nginx</div>
   </div>
   <div class="tab-content active" id="tab-usuarios">
@@ -250,6 +251,38 @@
       <button class="btn btn-sm" onclick="copiarMcpUrl()" style="white-space:nowrap;">📋 Copiar</button>
     </div>
     <div id="mcp-container"></div>
+  </div>
+  <div class="tab-content" id="tab-smtp">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin:12px 0;">
+      <div style="font-size:14px;font-weight:600;">Configuración SMTP</div>
+      <span style="font-size:11px;color:var(--muted);" id="smtp-status-badge"></span>
+    </div>
+    <div class="perm-rol-section">
+      <div class="perm-rol-titulo">Servidor de correo</div>
+      <label>Host</label>
+      <input type="text" id="smtp_host" placeholder="smtp.gmail.com">
+      <label>Puerto</label>
+      <input type="text" id="smtp_port" placeholder="587">
+      <label style="display:flex;align-items:center;gap:8px;margin-bottom:16px;text-transform:none;letter-spacing:0;font-weight:400;">
+        <input type="checkbox" id="smtp_secure" style="width:auto;"> Usar SSL/TLS (puerto 465)
+      </label>
+      <label>Usuario</label>
+      <input type="text" id="smtp_user" placeholder="tu@email.com" autocomplete="off">
+      <label>Contraseña</label>
+      <input type="password" id="smtp_pass" placeholder="Contraseña o App Password" autocomplete="off">
+      <label>Correo remitente</label>
+      <input type="text" id="smtp_from" placeholder="noreply@dominio.com (opcional)">
+      <label>Nombre remitente</label>
+      <input type="text" id="smtp_from_name" placeholder="Horix Platform">
+      <label style="display:flex;align-items:center;gap:8px;margin-bottom:16px;text-transform:none;letter-spacing:0;font-weight:400;">
+        <input type="checkbox" id="smtp_allow_self_signed" style="width:auto;"> Permitir certificados autofirmados
+      </label>
+      <div style="display:flex;gap:8px;">
+        <button class="btn" onclick="saveSmtpConfig()">💾 Guardar</button>
+        <button class="btn btn-sm" onclick="testSmtpConfig()" style="background:var(--surface2);color:var(--text);">📧 Enviar prueba</button>
+      </div>
+      <div id="smtp-result" style="margin-top:12px;font-size:13px;"></div>
+    </div>
   </div>
   <div class="tab-content" id="tab-nginx">
     <div style="display:flex;justify-content:space-between;align-items:center;margin:12px 0;">

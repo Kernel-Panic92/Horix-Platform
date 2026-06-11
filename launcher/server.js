@@ -5,6 +5,8 @@ const bcrypt = require('bcryptjs');
 const Database = require('better-sqlite3');
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
+const mail = require('./mail');
 
 const app = express();
 app.use(express.json());
@@ -34,6 +36,17 @@ const adminEmail = 'admin@horix.com';
 if (!db.prepare('SELECT id FROM usuarios WHERE email = ?').get(adminEmail)) {
   db.prepare('INSERT INTO usuarios (nombre, email, password_hash, rol) VALUES (?, ?, ?, ?)').run('Admin', adminEmail, bcrypt.hashSync('admin123', 10), 'admin');
 }
+
+// ── Config table (key-value) ──
+db.exec(`CREATE TABLE IF NOT EXISTS config (key TEXT PRIMARY KEY, value TEXT NOT NULL DEFAULT '')`);
+
+// Seed defaults
+const defaults = { smtp_host:'', smtp_port:'587', smtp_secure:'false', smtp_user:'', smtp_pass:'', smtp_from:'', smtp_from_name:'Horix Platform', smtp_allow_self_signed:'false' };
+for (const [k, v] of Object.entries(defaults)) {
+  db.prepare("INSERT OR IGNORE INTO config (key, value) VALUES (?, ?)").run(k, v);
+}
+
+mail.init(db);
 
 // ── Reset tokens table ──
 db.exec(`
@@ -130,16 +143,52 @@ app.post('/api/auth/login', async (req, res) => {
   } catch (e) { console.error('[LOGIN]', e.stack || e.message); res.status(500).json({ error: 'Error interno' }); }
 });
 
+// ── SMTP config ──
+app.get('/api/admin/smtp', verificarToken, soloAdmin, (req, res) => {
+  const rows = db.prepare('SELECT key, value FROM config WHERE key LIKE "smtp_%" ORDER BY key').all();
+  const cfg = {};
+  for (const r of rows) cfg[r.key] = r.value;
+  res.json({ config: cfg, configured: mail.isConfigured() });
+});
+
+app.put('/api/admin/smtp', verificarToken, soloAdmin, (req, res) => {
+  const allowed = ['smtp_host','smtp_port','smtp_secure','smtp_user','smtp_pass','smtp_from','smtp_from_name','smtp_allow_self_signed'];
+  const upsert = db.prepare('INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)');
+  for (const [k, v] of Object.entries(req.body)) {
+    if (allowed.includes(k)) upsert.run(k, String(v ?? ''));
+  }
+  mail.refresh(db);
+  res.json({ ok: true, configured: mail.isConfigured() });
+});
+
+app.post('/api/admin/smtp/test', verificarToken, soloAdmin, async (req, res) => {
+  if (!mail.isConfigured()) return res.status(400).json({ error: 'SMTP no configurado' });
+  try {
+    const info = await mail.sendMail({ to: req.usuario.email, subject: 'Prueba SMTP - Horix Platform', html: '<p>Si recibes este correo, la configuración SMTP funciona correctamente.</p>' });
+    res.json({ ok: true, messageId: info.messageId });
+  } catch (e) {
+    res.json({ ok: false, error: e.message });
+  }
+});
+
 // ── Password recovery ──
 app.post('/api/auth/forgot', (req, res) => {
   const { email } = req.body;
   if (!email) return res.status(400).json({ error: 'Email requerido' });
-  const user = db.prepare('SELECT id, email FROM usuarios WHERE email = ? AND activo = 1').get(email.toLowerCase().trim());
+  const user = db.prepare('SELECT id, email, nombre FROM usuarios WHERE email = ? AND activo = 1').get(email.toLowerCase().trim());
+  // Always return same message to avoid email enumeration
   if (!user) return res.json({ ok: true, message: 'Si el email existe, recibirás un enlace de recuperación' });
-  const token = require('crypto').randomBytes(32).toString('hex');
+  const token = crypto.randomBytes(32).toString('hex');
   const expiresAt = new Date(Date.now() + 3600000).toISOString().replace('T', ' ').split('.')[0];
   db.prepare('INSERT INTO reset_tokens (email, token, expires_at) VALUES (?, ?, ?)').run(user.email, token, expiresAt);
-  res.json({ ok: true, message: 'Token generado', resetUrl: '/reset?token=' + token, token });
+  const resetUrl = `${req.protocol}://${req.get('host')}/reset?token=${token}`;
+  if (mail.isConfigured()) {
+    mail.sendResetEmail(user.email, resetUrl, user.nombre).catch(e => console.error('[MAIL] sendResetEmail error:', e.message));
+    res.json({ ok: true, message: 'Si el email existe, recibirás un enlace de recuperación' });
+  } else {
+    console.log('[FORGOT] SMTP no configurado — token para', user.email, ':', resetUrl);
+    res.json({ ok: true, message: 'SMTP no configurado. Token generado.', resetUrl: '/reset?token=' + token });
+  }
 });
 
 app.get('/api/auth/reset', (req, res) => {

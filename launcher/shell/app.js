@@ -422,10 +422,24 @@ async function sendResetToken() {
     const res = await fetch('/api/auth/forgot', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({email}) });
     const data = await res.json();
     if (!data.ok) { showError(errEl, data.error || 'Error'); btn.disabled = false; btn.textContent = 'Enviar enlace'; return; }
-    const link = window.location.origin + data.resetUrl;
-    document.getElementById('forgot-link').textContent = link;
-    document.getElementById('forgot-step-email').style.display = 'none';
-    document.getElementById('forgot-step-done').style.display = 'block';
+    // If the server returned a resetUrl, SMTP is not configured — show it directly
+    if (data.resetUrl) {
+      const link = window.location.origin + data.resetUrl;
+      document.getElementById('forgot-link').textContent = link;
+      document.getElementById('forgot-step-email').style.display = 'none';
+      document.getElementById('forgot-step-done').style.display = 'block';
+    } else {
+      // SMTP is configured — show confirmation message
+      document.getElementById('forgot-step-email').style.display = 'none';
+      document.getElementById('forgot-step-done').style.display = 'block';
+      document.getElementById('forgot-link').textContent = '';
+      document.querySelector('#forgot-step-done .box-info')?.remove();
+      const info = document.createElement('div');
+      info.className = 'box-info';
+      info.style.cssText = 'background:var(--surface2);border-radius:9px;padding:14px;margin-bottom:16px;font-size:13px;';
+      info.innerHTML = '📧 Si el correo existe en el sistema, recibirás un enlace de recuperación. Revisa tu bandeja de entrada.';
+      document.getElementById('forgot-link').parentElement.before(info);
+    }
   } catch(e) { showError(errEl, 'Error de conexión'); }
   finally { btn.disabled = false; btn.textContent = 'Enviar enlace'; }
 }
@@ -539,6 +553,71 @@ async function testMcp(id) {
   }
 }
 
+// ── SMTP ──
+async function loadSmtpConfig() {
+  const resultEl = document.getElementById('smtp-result');
+  resultEl.innerHTML = '<span style="color:var(--muted);">Cargando...</span>';
+  try {
+    const res = await fetch('/api/admin/smtp', { headers: { 'Authorization': 'Bearer ' + jwtToken } });
+    const data = await res.json();
+    for (const [k, v] of Object.entries(data.config)) {
+      const el = document.getElementById(k);
+      if (!el) continue;
+      if (el.type === 'checkbox') el.checked = v === 'true';
+      else el.value = v;
+    }
+    const badge = document.getElementById('smtp-status-badge');
+    if (badge) badge.innerHTML = data.configured ? '<span style="color:var(--success);">✅ Configurado</span>' : '<span style="color:var(--warning);">⚠️ No configurado</span>';
+    resultEl.innerHTML = '';
+  } catch (e) {
+    resultEl.innerHTML = '<span style="color:var(--danger);">❌ ' + e.message + '</span>';
+  }
+}
+async function saveSmtpConfig() {
+  const resultEl = document.getElementById('smtp-result');
+  const keys = ['smtp_host','smtp_port','smtp_secure','smtp_user','smtp_pass','smtp_from','smtp_from_name','smtp_allow_self_signed'];
+  const body = {};
+  for (const k of keys) {
+    const el = document.getElementById(k);
+    if (!el) continue;
+    body[k] = el.type === 'checkbox' ? (el.checked ? 'true' : 'false') : el.value;
+  }
+  resultEl.innerHTML = '<span style="color:var(--muted);">Guardando...</span>';
+  try {
+    const res = await fetch('/api/admin/smtp', {
+      method: 'PUT', headers: { 'Authorization': 'Bearer ' + jwtToken, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json();
+    if (data.ok) {
+      resultEl.innerHTML = '<span style="color:var(--success);">✅ Configuración guardada</span>';
+      const badge = document.getElementById('smtp-status-badge');
+      if (badge) badge.innerHTML = data.configured ? '<span style="color:var(--success);">✅ Configurado</span>' : '<span style="color:var(--warning);">⚠️ No configurado</span>';
+    } else {
+      resultEl.innerHTML = '<span style="color:var(--danger);">❌ ' + (data.error || 'Error') + '</span>';
+    }
+  } catch (e) {
+    resultEl.innerHTML = '<span style="color:var(--danger);">❌ ' + e.message + '</span>';
+  }
+}
+async function testSmtpConfig() {
+  const resultEl = document.getElementById('smtp-result');
+  resultEl.innerHTML = '<span style="color:var(--muted);">Enviando correo de prueba...</span>';
+  try {
+    const res = await fetch('/api/admin/smtp/test', {
+      method: 'POST', headers: { 'Authorization': 'Bearer ' + jwtToken }
+    });
+    const data = await res.json();
+    if (data.ok) {
+      resultEl.innerHTML = '<span style="color:var(--success);">✅ Correo de prueba enviado (ID: ' + data.messageId + ')</span>';
+    } else {
+      resultEl.innerHTML = '<span style="color:var(--danger);">❌ ' + (data.error || 'Error') + '</span>';
+    }
+  } catch (e) {
+    resultEl.innerHTML = '<span style="color:var(--danger);">❌ ' + e.message + '</span>';
+  }
+}
+
 // ── Admin tab router ──
 function showAdminTab(tab) {
   document.querySelectorAll('#admin-screen .tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tab));
@@ -546,7 +625,8 @@ function showAdminTab(tab) {
   if (tab === 'usuarios') loadUsers();
   else if (tab === 'modulos') loadModulos();
    else if (tab === 'mcp') { loadMcpConfig(); loadMcpUrl(); }
-  else if (tab === 'nginx') loadNginx();
+   else if (tab === 'smtp') loadSmtpConfig();
+   else if (tab === 'nginx') loadNginx();
 }
 
 // ── Nginx ──
