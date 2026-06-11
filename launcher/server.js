@@ -172,6 +172,25 @@ app.post('/api/admin/smtp/test', verificarToken, soloAdmin, async (req, res) => 
 });
 
 // ── Password recovery ──
+function getDominioYLauncherPort() {
+  const configPath = '/opt/horix-platform/config.env';
+  let dominio = 'localhost';
+  let launcherPort = String(PORT);
+  try {
+    if (fs.existsSync(configPath)) {
+      const raw = fs.readFileSync(configPath, 'utf8');
+      const dm = raw.match(/^DOMAIN=(.+)$/m);
+      if (dm) dominio = dm[1].trim();
+      // Try to read launcher port from env, fallback to PORT
+      const lp = raw.match(/^LAUNCHER_PORT=(.+)$/m);
+      if (lp) launcherPort = lp[1].trim();
+    }
+  } catch {}
+  // If running behind nginx on 443/9443 use those, otherwise use the direct port
+  // We check if LAUNCHER_PORT is set in config.env, else PORT
+  return { dominio, launcherPort };
+}
+
 app.post('/api/auth/forgot', (req, res) => {
   const { email } = req.body;
   if (!email) return res.status(400).json({ error: 'Email requerido' });
@@ -181,7 +200,12 @@ app.post('/api/auth/forgot', (req, res) => {
   const token = crypto.randomBytes(32).toString('hex');
   const expiresAt = new Date(Date.now() + 3600000).toISOString().replace('T', ' ').split('.')[0];
   db.prepare('INSERT INTO reset_tokens (email, token, expires_at) VALUES (?, ?, ?)').run(user.email, token, expiresAt);
-  const resetUrl = `${req.protocol}://${req.get('host')}/reset?token=${token}`;
+  const { dominio } = getDominioYLauncherPort();
+  const mode = (() => { try { const r = fs.readFileSync('/opt/horix-platform/config.env','utf8'); const m = r.match(/^MODE=(.+)$/m); return m?.[1]?.trim() || 'test'; } catch { return 'test'; } })();
+  // In prod, launcher is behind nginx on 9443 (or 443 if configured); use HTTPS
+  const launcherPort = mode === 'prod' ? '9443' : String(PORT);
+  const protocol = mode === 'prod' ? 'https' : 'http';
+  const resetUrl = `${protocol}://${dominio}:${launcherPort}/reset?token=${token}`;
   if (mail.isConfigured()) {
     mail.sendResetEmail(user.email, resetUrl, user.nombre).catch(e => console.error('[MAIL] sendResetEmail error:', e.message));
     res.json({ ok: true, message: 'Si el email existe, recibirás un enlace de recuperación' });
