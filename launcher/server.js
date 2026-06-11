@@ -623,36 +623,31 @@ async function processMcpMessage(msg) {
   return { jsonrpc: '2.0', error: { code: -32601, message: 'Method not found' }, id };
 }
 
-// GET /mcp — SSE if client requests it, otherwise JSON status
+// GET /mcp — SSE transport (this is an API endpoint, not a browser page)
 app.get('/mcp', (req, res) => {
-  const wantsSse = (req.headers.accept || '').includes('text/event-stream') || req.query.transport === 'sse';
-  if (wantsSse) {
-    const sessionId = crypto.randomUUID();
-    res.writeHead(200, {
-      'Content-Type': 'text/event-stream',
-      'Cache-Control': 'no-cache',
-      'Connection': 'keep-alive',
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Headers': '*',
-    });
-    res.write(`event: endpoint\ndata: /mcp?sessionId=${sessionId}\n\n`);
-    const client = { res, connected: true, lastActivity: Date.now() };
-    mcpSseClients.set(sessionId, client);
-    const keepAlive = setInterval(() => {
-      if (!client.connected) { clearInterval(keepAlive); return; }
-      if (Date.now() - client.lastActivity > 30000) {
-        client.connected = false; clearInterval(keepAlive);
-        mcpSseClients.delete(sessionId); res.end(); return;
-      }
-      res.write(': keepalive\n\n');
-    }, 5000);
-    req.on('close', () => {
+  const sessionId = crypto.randomUUID();
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    'Connection': 'keep-alive',
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Headers': '*',
+  });
+  res.write(`event: endpoint\ndata: /mcp?sessionId=${sessionId}\n\n`);
+  const client = { res, connected: true, lastActivity: Date.now() };
+  mcpSseClients.set(sessionId, client);
+  const keepAlive = setInterval(() => {
+    if (!client.connected) { clearInterval(keepAlive); return; }
+    if (Date.now() - client.lastActivity > 30000) {
       client.connected = false; clearInterval(keepAlive);
-      mcpSseClients.delete(sessionId);
-    });
-    return;
-  }
-  res.json({ status: 'ok', server: 'horix-launcher', message: 'MCP gateway. Use ?transport=sse for SSE, or POST JSON-RPC.' });
+      mcpSseClients.delete(sessionId); res.end(); return;
+    }
+    res.write(': keepalive\n\n');
+  }, 5000);
+  req.on('close', () => {
+    client.connected = false; clearInterval(keepAlive);
+    mcpSseClients.delete(sessionId);
+  });
 });
 
 // POST handler — supports both SSE-session and direct modes
