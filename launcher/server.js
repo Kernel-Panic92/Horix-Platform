@@ -145,7 +145,7 @@ app.post('/api/auth/login', async (req, res) => {
 
 // ── SMTP config ──
 app.get('/api/admin/smtp', verificarToken, soloAdmin, (req, res) => {
-  const rows = db.prepare('SELECT key, value FROM config WHERE key LIKE "smtp_%" ORDER BY key').all();
+  const rows = db.prepare("SELECT key, value FROM config WHERE key LIKE 'smtp_%' ORDER BY key").all();
   const cfg = {};
   for (const r of rows) cfg[r.key] = r.value;
   res.json({ config: cfg, configured: mail.isConfigured() });
