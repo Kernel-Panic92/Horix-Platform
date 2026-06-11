@@ -226,7 +226,7 @@ app.get('/api/admin/health', verificarToken, soloAdmin, async (req, res) => {
       const headers = { 'Content-Type': 'application/json' };
       if (m.mcp_token) headers['Authorization'] = 'Bearer ' + m.mcp_token;
       if (sessionId) headers['mcp-session-id'] = sessionId;
-      const r = await fetch(m.url + '/mcp', {
+      const r = await fetch(mcpUrl(m), {
         method: 'POST', headers,
         body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} }),
         signal: AbortSignal.timeout(3000),
@@ -266,7 +266,7 @@ app.post('/api/admin/mcp/:id/test', verificarToken, soloAdmin, async (req, res) 
     if (mod.mcp_token) headers['Authorization'] = 'Bearer ' + mod.mcp_token;
       const sessionId = await ensureMcpSession(mod);
       if (sessionId) headers['mcp-session-id'] = sessionId;
-      const r = await fetch(mod.url + '/mcp', {
+      const r = await fetch(mcpUrl(mod), {
         method: 'POST', headers,
         body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} }),
         signal: AbortSignal.timeout(5000),
@@ -388,13 +388,18 @@ app.post('/api/admin/nginx/generate', verificarToken, soloAdmin, (req, res) => {
 // ── Session cache for MCP modules ──
 const mcpSessions = new Map();
 
+function mcpUrl(mod) {
+  const base = mod.url.replace(/\/+$/, '');
+  return base + '/mcp';
+}
+
 async function ensureMcpSession(mod) {
   const cached = mcpSessions.get(mod.id);
   if (cached?.sessionId && Date.now() - cached.ts < 3600000) return cached.sessionId;
   try {
     const headers = { 'Content-Type': 'application/json' };
     if (mod.mcp_token) headers['Authorization'] = 'Bearer ' + mod.mcp_token;
-    const r = await fetch(mod.url + '/mcp', {
+    const r = await fetch(mcpUrl(mod), {
       method: 'POST', headers,
       body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: {} }),
       signal: AbortSignal.timeout(5000),
@@ -414,7 +419,7 @@ async function forwardMcpRequest(mod, body, timeout = 30000) {
   if (mod.mcp_token) headers['Authorization'] = 'Bearer ' + mod.mcp_token;
   const sessionId = await ensureMcpSession(mod);
   if (sessionId) headers['mcp-session-id'] = sessionId;
-  const r = await fetch(mod.url + '/mcp', {
+  const r = await fetch(mcpUrl(mod), {
     method: 'POST', headers,
     body: JSON.stringify(body),
     signal: AbortSignal.timeout(timeout),
@@ -424,7 +429,7 @@ async function forwardMcpRequest(mod, body, timeout = 30000) {
     mcpSessions.delete(mod.id);
     const sessionId2 = await ensureMcpSession(mod);
     if (sessionId2) headers['mcp-session-id'] = sessionId2;
-    const r2 = await fetch(mod.url + '/mcp', {
+    const r2 = await fetch(mcpUrl(mod), {
       method: 'POST', headers,
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(timeout),
