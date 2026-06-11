@@ -222,7 +222,15 @@ app.get('/api/admin/health', verificarToken, soloAdmin, async (req, res) => {
   const modulos = getModulos(false);
   const results = await Promise.all(modulos.map(async (m) => {
     try {
-      const r = await fetch(m.url + '/mcp', { signal: AbortSignal.timeout(3000) });
+      const sessionId = await ensureMcpSession(m);
+      const headers = { 'Content-Type': 'application/json' };
+      if (m.mcp_token) headers['Authorization'] = 'Bearer ' + m.mcp_token;
+      if (sessionId) headers['mcp-session-id'] = sessionId;
+      const r = await fetch(m.url + '/mcp', {
+        method: 'POST', headers,
+        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} }),
+        signal: AbortSignal.timeout(3000),
+      });
       return { id: m.id, nombre: m.nombre, estado: r.ok ? 'online' : 'error', status: r.status };
     } catch (e) {
       return { id: m.id, nombre: m.nombre, estado: 'offline', error: e.message };
@@ -256,9 +264,15 @@ app.post('/api/admin/mcp/:id/test', verificarToken, soloAdmin, async (req, res) 
   try {
     const headers = { 'Content-Type': 'application/json' };
     if (mod.mcp_token) headers['Authorization'] = 'Bearer ' + mod.mcp_token;
-    const r = await fetch(mod.url + '/mcp', { headers, signal: AbortSignal.timeout(5000) });
-    const data = await r.json().catch(() => null);
-    res.json({ ok: r.ok, status: r.status, data });
+      const sessionId = await ensureMcpSession(mod);
+      if (sessionId) headers['mcp-session-id'] = sessionId;
+      const r = await fetch(mod.url + '/mcp', {
+        method: 'POST', headers,
+        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} }),
+        signal: AbortSignal.timeout(5000),
+      });
+      const data = await r.json().catch(() => null);
+      res.json({ ok: r.ok, status: r.status, data });
   } catch (e) {
     res.json({ ok: false, error: e.message });
   }
@@ -371,6 +385,55 @@ app.post('/api/admin/nginx/generate', verificarToken, soloAdmin, (req, res) => {
   }
 });
 
+// ── Session cache for MCP modules ──
+const mcpSessions = new Map();
+
+async function ensureMcpSession(mod) {
+  const cached = mcpSessions.get(mod.id);
+  if (cached?.sessionId && Date.now() - cached.ts < 3600000) return cached.sessionId;
+  try {
+    const headers = { 'Content-Type': 'application/json' };
+    if (mod.mcp_token) headers['Authorization'] = 'Bearer ' + mod.mcp_token;
+    const r = await fetch(mod.url + '/mcp', {
+      method: 'POST', headers,
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: {} }),
+      signal: AbortSignal.timeout(5000),
+    });
+    const sessionId = r.headers.get('mcp-session-id');
+    const data = await r.json();
+    if (data.result?.protocolVersion && sessionId) {
+      mcpSessions.set(mod.id, { sessionId, ts: Date.now() });
+      return sessionId;
+    }
+  } catch (e) { console.warn(`[MCP] Failed to initialize session for ${mod.id}:`, e.message); }
+  return null;
+}
+
+async function forwardMcpRequest(mod, body, timeout = 30000) {
+  const headers = { 'Content-Type': 'application/json' };
+  if (mod.mcp_token) headers['Authorization'] = 'Bearer ' + mod.mcp_token;
+  const sessionId = await ensureMcpSession(mod);
+  if (sessionId) headers['mcp-session-id'] = sessionId;
+  const r = await fetch(mod.url + '/mcp', {
+    method: 'POST', headers,
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(timeout),
+  });
+  const data = await r.json();
+  if (data.error?.code === -32001) {
+    mcpSessions.delete(mod.id);
+    const sessionId2 = await ensureMcpSession(mod);
+    if (sessionId2) headers['mcp-session-id'] = sessionId2;
+    const r2 = await fetch(mod.url + '/mcp', {
+      method: 'POST', headers,
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(timeout),
+    });
+    return r2.json();
+  }
+  return data;
+}
+
 // ── MCP Gateway ──
 app.post('/mcp', async (req, res) => {
   const msg = req.body;
@@ -382,14 +445,7 @@ app.post('/mcp', async (req, res) => {
     const modulos = getModulos(true);
     for (const m of modulos) {
       try {
-        const headers = { 'Content-Type': 'application/json' };
-        if (m.mcp_token) headers['Authorization'] = 'Bearer ' + m.mcp_token;
-        const r = await fetch(m.url + '/mcp', {
-          method: 'POST', headers,
-          body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} }),
-          signal: AbortSignal.timeout(5000),
-        });
-        const data = await r.json();
+        const data = await forwardMcpRequest(m, { jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} }, 5000);
         if (data.result?.tools) {
           for (const t of data.result.tools) allTools.push({ ...t, name: m.id + '_' + t.name });
         }
@@ -407,14 +463,8 @@ app.post('/mcp', async (req, res) => {
     const mod = modulos.find(m => m.id === prefix);
     if (!mod) return res.json({ jsonrpc: '2.0', error: { code: -32601, message: 'Unknown or disabled module: ' + prefix }, id });
     try {
-      const headers = { 'Content-Type': 'application/json' };
-      if (mod.mcp_token) headers['Authorization'] = 'Bearer ' + mod.mcp_token;
-      const r = await fetch(mod.url + '/mcp', {
-        method: 'POST', headers,
-        body: JSON.stringify({ jsonrpc: '2.0', id, method: 'tools/call', params: { name: parts.slice(1).join('_'), arguments: args } }),
-        signal: AbortSignal.timeout(30000),
-      });
-      return res.json(await r.json());
+      const data = await forwardMcpRequest(mod, { jsonrpc: '2.0', id, method: 'tools/call', params: { name: parts.slice(1).join('_'), arguments: args } }, 30000);
+      return res.json(data);
     } catch (e) {
       return res.json({ jsonrpc: '2.0', error: { code: -32000, message: 'Error contacting ' + prefix + ': ' + e.message }, id });
     }
