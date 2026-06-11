@@ -35,6 +35,18 @@ if (!db.prepare('SELECT id FROM usuarios WHERE email = ?').get(adminEmail)) {
   db.prepare('INSERT INTO usuarios (nombre, email, password_hash, rol) VALUES (?, ?, ?, ?)').run('Admin', adminEmail, bcrypt.hashSync('admin123', 10), 'admin');
 }
 
+// ── Reset tokens table ──
+db.exec(`
+  CREATE TABLE IF NOT EXISTS reset_tokens (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    email TEXT NOT NULL,
+    token TEXT NOT NULL UNIQUE,
+    expires_at TEXT NOT NULL,
+    usado INTEGER NOT NULL DEFAULT 0,
+    creado TEXT NOT NULL DEFAULT (datetime('now'))
+  )
+`);
+
 // ── New Tables ──
 db.exec(`
   CREATE TABLE IF NOT EXISTS modulos_plataforma (
@@ -116,6 +128,38 @@ app.post('/api/auth/login', async (req, res) => {
     res.cookie('launcher_jwt', token, { httpOnly: false, secure: false, sameSite: 'lax', maxAge: 24 * 60 * 60 * 1000 });
     res.json({ jwt: token, usuario: payload });
   } catch (e) { console.error('[LOGIN]', e.stack || e.message); res.status(500).json({ error: 'Error interno' }); }
+});
+
+// ── Password recovery ──
+app.post('/api/auth/forgot', (req, res) => {
+  const { email } = req.body;
+  if (!email) return res.status(400).json({ error: 'Email requerido' });
+  const user = db.prepare('SELECT id, email FROM usuarios WHERE email = ? AND activo = 1').get(email.toLowerCase().trim());
+  if (!user) return res.json({ ok: true, message: 'Si el email existe, recibirás un enlace de recuperación' });
+  const token = require('crypto').randomBytes(32).toString('hex');
+  const expiresAt = new Date(Date.now() + 3600000).toISOString().replace('T', ' ').split('.')[0];
+  db.prepare('INSERT INTO reset_tokens (email, token, expires_at) VALUES (?, ?, ?)').run(user.email, token, expiresAt);
+  res.json({ ok: true, message: 'Token generado', resetUrl: '/reset?token=' + token, token });
+});
+
+app.get('/api/auth/reset', (req, res) => {
+  const { token } = req.query;
+  if (!token) return res.status(400).json({ error: 'Token requerido' });
+  const row = db.prepare('SELECT * FROM reset_tokens WHERE token = ? AND usado = 0 AND expires_at > datetime("now")').get(token);
+  if (!row) return res.status(400).json({ error: 'Token inválido o expirado' });
+  res.json({ ok: true, email: row.email });
+});
+
+app.post('/api/auth/reset', async (req, res) => {
+  const { token, password } = req.body;
+  if (!token || !password) return res.status(400).json({ error: 'Token y contraseña requeridos' });
+  if (password.length < 6) return res.status(400).json({ error: 'La contraseña debe tener al menos 6 caracteres' });
+  const row = db.prepare('SELECT * FROM reset_tokens WHERE token = ? AND usado = 0 AND expires_at > datetime("now")').get(token);
+  if (!row) return res.status(400).json({ error: 'Token inválido o expirado' });
+  const hash = bcrypt.hashSync(password, 10);
+  db.prepare("UPDATE usuarios SET password_hash = ?, actualizado = datetime('now') WHERE email = ?").run(hash, row.email);
+  db.prepare('UPDATE reset_tokens SET usado = 1 WHERE id = ?').run(row.id);
+  res.json({ ok: true, message: 'Contraseña actualizada correctamente' });
 });
 
 app.get('/api/modulos', verificarToken, (req, res) => {

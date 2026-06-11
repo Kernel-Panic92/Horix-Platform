@@ -400,6 +400,61 @@ function copiarMcpUrl() {
   });
 }
 
+// ── Password recovery ──
+function showForgotPassword() {
+  document.getElementById('forgot-step-email').style.display = 'block';
+  document.getElementById('forgot-step-done').style.display = 'none';
+  document.getElementById('forgot-error').classList.remove('show');
+  document.getElementById('forgot-email').value = '';
+  document.getElementById('forgot-modal').style.display = 'block';
+}
+function closeForgot() {
+  document.getElementById('forgot-modal').style.display = 'none';
+}
+async function sendResetToken() {
+  const email = document.getElementById('forgot-email').value.trim();
+  const errEl = document.getElementById('forgot-error');
+  const btn = document.querySelector('#forgot-step-email .btn');
+  if (!email) { showError(errEl, 'Ingresa tu correo electrónico'); return; }
+  errEl.classList.remove('show');
+  btn.disabled = true; btn.textContent = 'Enviando...';
+  try {
+    const res = await fetch('/api/auth/forgot', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({email}) });
+    const data = await res.json();
+    if (!data.ok) { showError(errEl, data.error || 'Error'); btn.disabled = false; btn.textContent = 'Enviar enlace'; return; }
+    const link = window.location.origin + data.resetUrl;
+    document.getElementById('forgot-link').textContent = link;
+    document.getElementById('forgot-step-email').style.display = 'none';
+    document.getElementById('forgot-step-done').style.display = 'block';
+  } catch(e) { showError(errEl, 'Error de conexión'); }
+  finally { btn.disabled = false; btn.textContent = 'Enviar enlace'; }
+}
+function closeReset() {
+  document.getElementById('reset-modal').style.display = 'none';
+  show('login-screen');
+}
+async function submitReset() {
+  const pwd = document.getElementById('reset-password').value;
+  const pwd2 = document.getElementById('reset-password2').value;
+  const errEl = document.getElementById('reset-error');
+  if (!pwd || pwd.length < 6) { showError(errEl, 'La contraseña debe tener al menos 6 caracteres'); return; }
+  if (pwd !== pwd2) { showError(errEl, 'Las contraseñas no coinciden'); return; }
+  errEl.classList.remove('show');
+  const params = new URLSearchParams(window.location.search);
+  const token = params.get('token');
+  if (!token) { showError(errEl, 'Token no encontrado en la URL'); return; }
+  const btn = document.querySelector('#reset-form .btn');
+  btn.disabled = true; btn.textContent = 'Cambiando...';
+  try {
+    const res = await fetch('/api/auth/reset', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({token, password:pwd}) });
+    const data = await res.json();
+    if (!data.ok) { showError(errEl, data.error || 'Error'); btn.disabled = false; btn.textContent = 'Cambiar contraseña'; return; }
+    document.getElementById('reset-form').style.display = 'none';
+    document.getElementById('reset-done').style.display = 'block';
+  } catch(e) { showError(errEl, 'Error de conexión'); }
+  finally { btn.disabled = false; btn.textContent = 'Cambiar contraseña'; }
+}
+
 // ── MCP config ──
 async function loadMcpConfig() {
   try {
@@ -562,4 +617,13 @@ async function generarNginx() {
     localStorage.removeItem('platform_jwt');
   }
   show('login-screen');
+  const params = new URLSearchParams(window.location.search);
+  if (params.get('token')) {
+    document.getElementById('reset-password').value = '';
+    document.getElementById('reset-password2').value = '';
+    document.getElementById('reset-error').classList.remove('show');
+    document.getElementById('reset-form').style.display = 'block';
+    document.getElementById('reset-done').style.display = 'none';
+    document.getElementById('reset-modal').style.display = 'block';
+  }
 })();
