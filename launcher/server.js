@@ -577,11 +577,16 @@ async function forwardMcpRequest(mod, body, timeout = 30000) {
 const mcpSseClients = new Map();
 
 async function processMcpMessage(msg) {
+  console.log('[MCP] received:', JSON.stringify({ method: msg?.method, id: msg?.id }));
   if (!msg || msg.jsonrpc !== '2.0') return { jsonrpc: '2.0', error: { code: -32600, message: 'Invalid Request' }, id: null };
   const id = msg.id ?? null;
 
   if (msg.method === 'initialize') {
     return { jsonrpc: '2.0', result: { protocolVersion: '2025-03-26', serverInfo: { name: 'horix-launcher', version: '1.0.0' }, capabilities: { tools: {} } }, id };
+  }
+
+  if (msg.method === 'ping') {
+    return { jsonrpc: '2.0', result: {}, id };
   }
 
   if (msg.method === 'tools/list') {
@@ -620,23 +625,30 @@ async function processMcpMessage(msg) {
 
 // SSE endpoint for MCP clients (Claude Desktop, Cline, etc.)
 app.get('/mcp', (req, res) => {
-  const sessionId = crypto.randomUUID();
-  res.writeHead(200, {
-    'Content-Type': 'text/event-stream',
-    'Cache-Control': 'no-cache',
-    'Connection': 'keep-alive',
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Headers': '*',
-  });
-  res.write(`event: endpoint\ndata: /mcp?sessionId=${sessionId}\n\n`);
-  const client = { res, connected: true };
-  mcpSseClients.set(sessionId, client);
-  const keepAlive = setInterval(() => { if (client.connected) res.write(': keepalive\n\n'); }, 15000);
-  req.on('close', () => {
-    client.connected = false;
-    clearInterval(keepAlive);
-    mcpSseClients.delete(sessionId);
-  });
+  // Only stream SSE if client explicitly asks for it
+  const accept = (req.headers.accept || '').toLowerCase();
+  if (accept.includes('text/event-stream') || req.query.sse === '1') {
+    const sessionId = crypto.randomUUID();
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Headers': '*',
+    });
+    res.write(`event: endpoint\ndata: /mcp?sessionId=${sessionId}\n\n`);
+    const client = { res, connected: true };
+    mcpSseClients.set(sessionId, client);
+    const keepAlive = setInterval(() => { if (client.connected) res.write(': keepalive\n\n'); }, 15000);
+    req.on('close', () => {
+      client.connected = false;
+      clearInterval(keepAlive);
+      mcpSseClients.delete(sessionId);
+    });
+    return;
+  }
+  // Browser/curl access — show status
+  res.json({ status: 'ok', server: 'horix-launcher', message: 'MCP gateway. Use Accept: text/event-stream or ?sse=1 for SSE transport, or POST JSON-RPC messages.' });
 });
 
 // POST handler — supports both SSE-session and direct modes
