@@ -357,6 +357,23 @@ ${locations}}
 `;
 }
 
+// ── MCP connection info ──
+app.get('/api/admin/mcp/url', verificarToken, soloAdmin, (req, res) => {
+  const configPath = '/opt/horix-platform/config.env';
+  let dominio = 'localhost';
+  let mcpPort = '9443';
+  try {
+    if (fs.existsSync(configPath)) {
+      const raw = fs.readFileSync(configPath, 'utf8');
+      const dm = raw.match(/^DOMAIN=(.+)$/m);
+      if (dm) dominio = dm[1].trim();
+      const pm = raw.match(/^MCP_PORT=(.+)$/m);
+      if (pm) mcpPort = pm[1].trim();
+    }
+  } catch {}
+  res.json({ url: `https://${dominio}:${mcpPort}/mcp`, dominio, puerto: mcpPort });
+});
+
 app.get('/api/admin/nginx', verificarToken, soloAdmin, (req, res) => {
   const config = generarNginx();
   const configPath = '/etc/nginx/sites-available/horix-erp';

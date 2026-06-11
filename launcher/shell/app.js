@@ -374,6 +374,32 @@ async function deleteModulo(id) {
   } catch (e) { alert(e.message); }
 }
 
+// ── MCP URL display ──
+async function loadMcpUrl() {
+  const el = document.getElementById('mcp-url-display');
+  if (!el) return;
+  try {
+    const res = await fetch('/api/admin/mcp/url', { headers: { 'Authorization': 'Bearer ' + jwtToken } });
+    if (!res.ok) throw new Error('Error');
+    const data = await res.json();
+    el.textContent = data.url;
+  } catch {
+    el.textContent = 'No disponible';
+  }
+}
+function copiarMcpUrl() {
+  const el = document.getElementById('mcp-url-display');
+  if (!el || !el.textContent) return;
+  navigator.clipboard.writeText(el.textContent).then(() => {
+    const btn = document.querySelector('#mcp-url-box .btn');
+    if (btn) { btn.textContent = '✅ Copiado'; setTimeout(() => btn.textContent = '📋 Copiar', 2000); }
+  }).catch(() => {
+    const range = document.createRange(); range.selectNode(el);
+    window.getSelection().removeAllRanges(); window.getSelection().addRange(range);
+    document.execCommand('copy'); window.getSelection().removeAllRanges();
+  });
+}
+
 // ── MCP config ──
 async function loadMcpConfig() {
   try {
@@ -464,7 +490,7 @@ function showAdminTab(tab) {
   document.querySelectorAll('#admin-screen .tab-content').forEach(t => t.classList.toggle('active', t.id === 'tab-' + tab));
   if (tab === 'usuarios') loadUsers();
   else if (tab === 'modulos') loadModulos();
-  else if (tab === 'mcp') loadMcpConfig();
+   else if (tab === 'mcp') { loadMcpConfig(); loadMcpUrl(); }
   else if (tab === 'nginx') loadNginx();
 }
 
