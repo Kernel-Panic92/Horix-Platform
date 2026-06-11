@@ -573,17 +573,31 @@ async function forwardMcpRequest(mod, body, timeout = 30000) {
   return data;
 }
 
-// ── MCP Gateway (Streamable HTTP) ──
+// ── MCP Gateway + OAuth ──
+const mcpGatewaySessions = new Map();
+const mcpOAuthClients = new Map();
+const mcpOAuthCodes = new Map();
+
+function rpcResult(id, result) { return { jsonrpc: '2.0', result, id }; }
+function rpcError(id, code, message) { return { jsonrpc: '2.0', error: { code, message }, id }; }
+
 async function processMcpMessage(msg) {
-  if (!msg || msg.jsonrpc !== '2.0') return { jsonrpc: '2.0', error: { code: -32600, message: 'Invalid Request' }, id: null };
+  if (!msg || msg.jsonrpc !== '2.0') return rpcError(null, -32600, 'Invalid Request');
   const id = msg.id ?? null;
 
   if (msg.method === 'initialize') {
-    return { jsonrpc: '2.0', result: { protocolVersion: '2025-03-26', serverInfo: { name: 'horix-launcher', version: '1.0.0' }, capabilities: { tools: {} } }, id };
+    const sessionId = crypto.randomUUID();
+    mcpGatewaySessions.set(sessionId, { createdAt: Date.now() });
+    return { sessionId, body: rpcResult(id, { protocolVersion: '2025-03-26', serverInfo: { name: 'horix-launcher', version: '1.0.0' }, capabilities: { tools: {} } }) };
   }
 
   if (msg.method === 'ping') {
-    return { jsonrpc: '2.0', result: {}, id };
+    return rpcResult(id, {});
+  }
+
+  const sessionId = msg.sessionId || '';
+  if (sessionId && !mcpGatewaySessions.has(sessionId)) {
+    return rpcError(id, -32001, 'Sesión inválida');
   }
 
   if (msg.method === 'tools/list') {
@@ -597,38 +611,45 @@ async function processMcpMessage(msg) {
         }
       } catch (e) { console.warn(`[MCP] Failed to list tools from ${m.id}:`, e.message); }
     }
-    return { jsonrpc: '2.0', result: { tools: allTools }, id };
+    return rpcResult(id, { tools: allTools });
   }
 
   if (msg.method === 'tools/call') {
     const { name, arguments: args } = msg.params || {};
-    if (!name) return { jsonrpc: '2.0', error: { code: -32602, message: 'Missing tool name' }, id };
+    if (!name) return rpcError(id, -32602, 'Missing tool name');
     const parts = name.split('_');
     const prefix = parts[0];
     const modulos = getModulos(true);
     const mod = modulos.find(m => m.id === prefix);
-    if (!mod) return { jsonrpc: '2.0', error: { code: -32601, message: 'Unknown or disabled module: ' + prefix }, id };
+    if (!mod) return rpcError(id, -32601, 'Unknown or disabled module: ' + prefix);
     try {
-      const data = await forwardMcpRequest(mod, { jsonrpc: '2.0', id, method: 'tools/call', params: { name: parts.slice(1).join('_'), arguments: args } }, 30000);
-      return data;
+      return await forwardMcpRequest(mod, { jsonrpc: '2.0', id, method: 'tools/call', params: { name: parts.slice(1).join('_'), arguments: args } }, 30000);
     } catch (e) {
-      return { jsonrpc: '2.0', error: { code: -32000, message: 'Error contacting ' + prefix + ': ' + e.message }, id };
+      return rpcError(id, -32000, 'Error contacting ' + prefix + ': ' + e.message);
     }
   }
 
-  if (msg.method?.startsWith('notifications/')) return { jsonrpc: '2.0', result: null, id: null };
-  return { jsonrpc: '2.0', error: { code: -32601, message: 'Method not found: ' + msg.method }, id };
+  if (msg.method?.startsWith('notifications/')) return rpcResult(null, null);
+  return rpcError(id, -32601, 'Method not found: ' + msg.method);
 }
 
+// MCP POST handler
 app.post('/mcp', async (req, res) => {
   const msg = req.body;
+  const sessionId = req.headers['mcp-session-id'] || '';
+  if (msg && typeof msg === 'object') msg.sessionId = sessionId;
   const result = await processMcpMessage(msg);
+  if (result.sessionId) {
+    res.setHeader('mcp-session-id', result.sessionId);
+    if (msg?.method?.startsWith('notifications/')) return res.status(202).end();
+    return res.json(result.body);
+  }
   if (msg?.method?.startsWith('notifications/')) return res.status(202).end();
   res.json(result);
 });
 
 app.get('/mcp', (req, res) => {
-  res.json({ status: 'ok', server: 'horix-launcher', version: '1.0.0', transport: 'streamable-http' });
+  res.json({ status: 'ok', server: 'horix-launcher', version: '1.0.0' });
 });
 
 app.options('/mcp', (req, res) => {
@@ -636,6 +657,123 @@ app.options('/mcp', (req, res) => {
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', '*');
   res.status(204).end();
+});
+
+// ── MCP OAuth 2.0 (DCR + Authorization Code flow) ──
+
+// DCR — Dynamic Client Registration
+app.post('/mcp/oauth/register', express.json(), (req, res) => {
+  const { redirect_uris, client_name } = req.body || {};
+  if (!redirect_uris || !Array.isArray(redirect_uris) || redirect_uris.length === 0) {
+    return res.status(400).json({ error: 'invalid_client_metadata', error_description: 'redirect_uris required' });
+  }
+  const clientId = crypto.randomUUID();
+  const clientSecret = crypto.randomUUID();
+  mcpOAuthClients.set(clientId, {
+    client_secret: clientSecret,
+    redirect_uris,
+    client_name: client_name || 'Claude',
+    createdAt: Date.now()
+  });
+  res.status(201).json({
+    client_id: clientId,
+    client_secret: clientSecret,
+    client_secret_expires_at: 0,
+    client_name: client_name || 'Claude',
+    redirect_uris,
+    grant_types: ['authorization_code', 'refresh_token'],
+    response_types: ['code'],
+    token_endpoint_auth_method: 'none'
+  });
+});
+
+// Authorize endpoint
+app.get('/mcp/oauth/authorize', (req, res) => {
+  const { state, client_id, redirect_uri, response_type } = req.query;
+  if (response_type !== 'code') return res.status(400).send('Invalid response_type');
+  if (!mcpOAuthClients.has(client_id)) {
+    mcpOAuthClients.set(client_id, {
+      client_secret: crypto.randomUUID(), redirect_uris: [],
+      client_name: 'Claude', autoRegistered: true, createdAt: Date.now()
+    });
+  }
+  const client = mcpOAuthClients.get(client_id);
+  const rUri = redirect_uri || client.redirect_uris[0] || 'https://claude.ai/api/mcp/auth_callback';
+  if (!client.redirect_uris.includes(rUri) && /^https:\/\/claude\.ai\//.test(rUri)) {
+    client.redirect_uris.push(rUri);
+  }
+  const code = crypto.randomUUID();
+  mcpOAuthCodes.set(code, { client_id, redirect_uri: rUri, createdAt: Date.now() });
+  const url = new URL(rUri);
+  url.searchParams.set('code', code);
+  url.searchParams.set('state', state || '');
+  res.redirect(302, url.toString());
+});
+
+// Token endpoint
+app.post('/mcp/oauth/token', express.urlencoded({ extended: false }), (req, res) => {
+  const { grant_type, code, redirect_uri } = req.body;
+  let client_id = req.body.client_id;
+  // Support client_secret_basic in Authorization header
+  const auth = req.headers['authorization'] || '';
+  if (auth.startsWith('Basic ')) {
+    const decoded = Buffer.from(auth.slice(6), 'base64').toString();
+    client_id = decoded.split(':')[0];
+  }
+  if (grant_type !== 'authorization_code') return res.status(400).json({ error: 'unsupported_grant_type' });
+  const stored = mcpOAuthCodes.get(code);
+  if (!stored) return res.status(400).json({ error: 'invalid_grant' });
+  mcpOAuthCodes.delete(code);
+  const accessToken = crypto.randomUUID();
+  res.json({
+    access_token: accessToken, token_type: 'Bearer',
+    expires_in: 86400,
+    refresh_token: crypto.randomUUID()
+  });
+});
+
+// Fallback: Claude sometimes POSTs to /register directly
+app.post('/register', express.json(), (req, res) => {
+  const { redirect_uris, client_name } = req.body || {};
+  if (!redirect_uris || !Array.isArray(redirect_uris) || redirect_uris.length === 0) {
+    return res.status(400).json({ error: 'invalid_client_metadata', error_description: 'redirect_uris required' });
+  }
+  const clientId = crypto.randomUUID();
+  const clientSecret = crypto.randomUUID();
+  mcpOAuthClients.set(clientId, {
+    client_secret: clientSecret, redirect_uris,
+    client_name: client_name || 'Claude', createdAt: Date.now()
+  });
+  res.status(201).json({
+    client_id: clientId, client_secret: clientSecret,
+    client_secret_expires_at: 0, client_name: client_name || 'Claude',
+    redirect_uris, grant_types: ['authorization_code', 'refresh_token'],
+    response_types: ['code'], token_endpoint_auth_method: 'none'
+  });
+});
+
+// ── Well-known OAuth metadata ──
+app.get('/.well-known/oauth-authorization-server', (req, res) => {
+  const base = `${req.protocol}://${req.get('host')}`;
+  res.json({
+    issuer: base,
+    authorization_endpoint: base + '/mcp/oauth/authorize',
+    token_endpoint: base + '/mcp/oauth/token',
+    registration_endpoint: base + '/mcp/oauth/register',
+    response_types_supported: ['code'],
+    grant_types_supported: ['authorization_code', 'refresh_token'],
+    code_challenge_methods_supported: ['S256'],
+    token_endpoint_auth_methods_supported: ['client_secret_basic', 'client_secret_post', 'none'],
+    scopes_supported: []
+  });
+});
+
+app.get('/.well-known/oauth-protected-resource', (req, res) => {
+  const base = `${req.protocol}://${req.get('host')}`;
+  res.json({
+    resource: base + '/mcp',
+    authorization_servers: [base]
+  });
 });
 
 app.use(express.static(path.join(__dirname, 'shell')));
