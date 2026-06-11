@@ -4,7 +4,7 @@ let _transport = null;
 let _config = {};
 
 function getConfig(db) {
-  const rows = db.prepare('SELECT key, value FROM config WHERE key LIKE "smtp_%"').all();
+  const rows = db.prepare("SELECT key, value FROM config WHERE key LIKE 'smtp_%'").all();
   const cfg = {};
   for (const r of rows) cfg[r.key] = r.value;
   return cfg;
