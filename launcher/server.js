@@ -42,7 +42,7 @@ if (!db.prepare('SELECT id FROM usuarios WHERE email = ?').get(adminEmail)) {
 db.exec(`CREATE TABLE IF NOT EXISTS config (key TEXT PRIMARY KEY, value TEXT NOT NULL DEFAULT '')`);
 
 // Seed defaults
-const defaults = { smtp_host:'', smtp_port:'587', smtp_secure:'false', smtp_user:'', smtp_pass:'', smtp_from:'', smtp_from_name:'Horix Platform', smtp_allow_self_signed:'false' };
+const defaults = { smtp_host:'', smtp_port:'587', smtp_secure:'false', smtp_user:'', smtp_pass:'', smtp_from:'', smtp_from_name:'Horix Platform', smtp_allow_self_signed:'false', mcp_oauth_enabled:'false' };
 for (const [k, v] of Object.entries(defaults)) {
   db.prepare("INSERT OR IGNORE INTO config (key, value) VALUES (?, ?)").run(k, v);
 }
@@ -660,10 +660,17 @@ app.options('/mcp', (req, res) => {
   res.status(204).end();
 });
 
+// ── OAuth guard middleware ──
+function requireOauth(req, res, next) {
+  const row = db.prepare("SELECT value FROM config WHERE key = 'mcp_oauth_enabled'").get();
+  if (row?.value !== 'true') return res.status(404).json({ error: 'not_found' });
+  next();
+}
+
 // ── MCP OAuth 2.0 (DCR + Authorization Code flow) ──
 
 // DCR — Dynamic Client Registration
-app.post('/mcp/oauth/register', express.json(), (req, res) => {
+app.post('/mcp/oauth/register', requireOauth, express.json(), (req, res) => {
   const { redirect_uris, client_name } = req.body || {};
   if (!redirect_uris || !Array.isArray(redirect_uris) || redirect_uris.length === 0) {
     return res.status(400).json({ error: 'invalid_client_metadata', error_description: 'redirect_uris required' });
@@ -689,7 +696,7 @@ app.post('/mcp/oauth/register', express.json(), (req, res) => {
 });
 
 // Authorize endpoint
-app.get('/mcp/oauth/authorize', (req, res) => {
+app.get('/mcp/oauth/authorize', requireOauth, (req, res) => {
   const { state, client_id, redirect_uri, response_type } = req.query;
   if (response_type !== 'code') return res.status(400).send('Invalid response_type');
   if (!mcpOAuthClients.has(client_id)) {
@@ -712,10 +719,9 @@ app.get('/mcp/oauth/authorize', (req, res) => {
 });
 
 // Token endpoint
-app.post('/mcp/oauth/token', express.urlencoded({ extended: false }), (req, res) => {
+app.post('/mcp/oauth/token', requireOauth, express.urlencoded({ extended: false }), (req, res) => {
   const { grant_type, code, redirect_uri } = req.body;
   let client_id = req.body.client_id;
-  // Support client_secret_basic in Authorization header
   const auth = req.headers['authorization'] || '';
   if (auth.startsWith('Basic ')) {
     const decoded = Buffer.from(auth.slice(6), 'base64').toString();
@@ -734,7 +740,7 @@ app.post('/mcp/oauth/token', express.urlencoded({ extended: false }), (req, res)
 });
 
 // Fallback: Claude sometimes POSTs to /register directly
-app.post('/register', express.json(), (req, res) => {
+app.post('/register', requireOauth, express.json(), (req, res) => {
   const { redirect_uris, client_name } = req.body || {};
   if (!redirect_uris || !Array.isArray(redirect_uris) || redirect_uris.length === 0) {
     return res.status(400).json({ error: 'invalid_client_metadata', error_description: 'redirect_uris required' });
@@ -770,7 +776,7 @@ function getBaseUrl() {
   return `https://${dominio}:${mcpPort}`;
 }
 
-app.get('/.well-known/oauth-authorization-server', (req, res) => {
+app.get('/.well-known/oauth-authorization-server', requireOauth, (req, res) => {
   const base = getBaseUrl();
   res.json({
     issuer: base,
@@ -785,7 +791,7 @@ app.get('/.well-known/oauth-authorization-server', (req, res) => {
   });
 });
 
-app.get('/.well-known/oauth-protected-resource', (req, res) => {
+app.get('/.well-known/oauth-protected-resource', requireOauth, (req, res) => {
   const base = getBaseUrl();
   res.json({
     resource: base + '/mcp',
