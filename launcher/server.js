@@ -573,11 +573,8 @@ async function forwardMcpRequest(mod, body, timeout = 30000) {
   return data;
 }
 
-// ── MCP Gateway ──
-const mcpSseClients = new Map();
-
+// ── MCP Gateway (Streamable HTTP) ──
 async function processMcpMessage(msg) {
-  console.log('[MCP] received:', JSON.stringify({ method: msg?.method, id: msg?.id }));
   if (!msg || msg.jsonrpc !== '2.0') return { jsonrpc: '2.0', error: { code: -32600, message: 'Invalid Request' }, id: null };
   const id = msg.id ?? null;
 
@@ -619,63 +616,19 @@ async function processMcpMessage(msg) {
     }
   }
 
-  if (msg.method === 'notifications/initialized') return { jsonrpc: '2.0', result: null, id: null };
-  return { jsonrpc: '2.0', error: { code: -32601, message: 'Method not found' }, id };
+  if (msg.method?.startsWith('notifications/')) return { jsonrpc: '2.0', result: null, id: null };
+  return { jsonrpc: '2.0', error: { code: -32601, message: 'Method not found: ' + msg.method }, id };
 }
 
-// GET /mcp — SSE transport (this is an API endpoint, not a browser page)
-app.get('/mcp', (req, res) => {
-  const sessionId = crypto.randomUUID();
-  res.writeHead(200, {
-    'Content-Type': 'text/event-stream',
-    'Cache-Control': 'no-cache',
-    'Connection': 'keep-alive',
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Headers': '*',
-  });
-  res.write(`event: endpoint\ndata: /mcp?sessionId=${sessionId}\n\n`);
-  const client = { res, connected: true, lastActivity: Date.now() };
-  mcpSseClients.set(sessionId, client);
-  const keepAlive = setInterval(() => {
-    if (!client.connected) { clearInterval(keepAlive); return; }
-    if (Date.now() - client.lastActivity > 30000) {
-      client.connected = false; clearInterval(keepAlive);
-      mcpSseClients.delete(sessionId); res.end(); return;
-    }
-    res.write(': keepalive\n\n');
-  }, 5000);
-  req.on('close', () => {
-    client.connected = false; clearInterval(keepAlive);
-    mcpSseClients.delete(sessionId);
-  });
+app.post('/mcp', async (req, res) => {
+  const msg = req.body;
+  const result = await processMcpMessage(msg);
+  if (msg?.method?.startsWith('notifications/')) return res.status(202).end();
+  res.json(result);
 });
 
-// POST handler — supports both SSE-session and direct modes
-app.post('/mcp', async (req, res) => {
-  const sessionId = req.query.sessionId;
-  const msg = req.body;
-
-  if (sessionId) {
-    const client = mcpSseClients.get(sessionId);
-    if (!client?.connected) return res.status(404).json({ error: 'Session not found or closed' });
-    client.lastActivity = Date.now();
-    try {
-      const result = await processMcpMessage(msg);
-      if (msg.id != null) {
-        client.res.write(`event: message\ndata: ${JSON.stringify(result)}\n\n`);
-      }
-      res.status(202).end();
-    } catch (e) {
-      client.res.write(`event: error\ndata: ${JSON.stringify({ error: e.message })}\n\n`);
-      res.status(500).end();
-    }
-    return;
-  }
-
-  // Direct mode (no SSE session) — existing behavior
-  const result = await processMcpMessage(msg);
-  if (msg?.method === 'notifications/initialized') return res.status(202).end();
-  return res.json(result);
+app.get('/mcp', (req, res) => {
+  res.json({ status: 'ok', server: 'horix-launcher', version: '1.0.0', transport: 'streamable-http' });
 });
 
 app.options('/mcp', (req, res) => {
