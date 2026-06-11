@@ -754,8 +754,24 @@ app.post('/register', express.json(), (req, res) => {
 });
 
 // ── Well-known OAuth metadata ──
+function getBaseUrl() {
+  const configPath = '/opt/horix-platform/config.env';
+  let dominio = 'localhost';
+  let mcpPort = '9443';
+  try {
+    if (fs.existsSync(configPath)) {
+      const raw = fs.readFileSync(configPath, 'utf8');
+      const dm = raw.match(/^DOMAIN=(.+)$/m);
+      if (dm) dominio = dm[1].trim();
+      const pm = raw.match(/^MCP_PORT=(.+)$/m);
+      if (pm) mcpPort = pm[1].trim();
+    }
+  } catch {}
+  return `https://${dominio}:${mcpPort}`;
+}
+
 app.get('/.well-known/oauth-authorization-server', (req, res) => {
-  const base = `${req.protocol}://${req.get('host')}`;
+  const base = getBaseUrl();
   res.json({
     issuer: base,
     authorization_endpoint: base + '/mcp/oauth/authorize',
@@ -770,7 +786,7 @@ app.get('/.well-known/oauth-authorization-server', (req, res) => {
 });
 
 app.get('/.well-known/oauth-protected-resource', (req, res) => {
-  const base = `${req.protocol}://${req.get('host')}`;
+  const base = getBaseUrl();
   res.json({
     resource: base + '/mcp',
     authorization_servers: [base]
