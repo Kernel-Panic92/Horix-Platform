@@ -450,7 +450,7 @@ server {
     ssl_certificate     ${sslCert};
     ssl_certificate_key ${sslKey};
     ssl_protocols       TLSv1.2 TLSv1.3;
-    ssl_ciphers         ECDHE-RSA-AES128-GCM-SHA256:ECDHE-RSA-AES256-GCM-SHA384;
+    ssl_ciphers         ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-RSA-AES256-GCM-SHA384;
     ssl_session_cache   shared:SSL:10m;
     ssl_session_timeout 1d;
     add_header Strict-Transport-Security "max-age=31536000" always;
