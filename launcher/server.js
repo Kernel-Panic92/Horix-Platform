@@ -503,7 +503,12 @@ app.get('/api/admin/mcp/url', verificarToken, soloAdmin, (req, res) => {
       if (pm) mcpPort = pm[1].trim();
     }
   } catch {}
-  res.json({ url: `https://${dominio}:${mcpPort}/mcp`, dominio, puerto: mcpPort });
+  res.json({
+    url_directa: `https://${dominio}:${mcpPort}/mcp`,
+    url_gateway: `https://${dominio}/mcp-gateway/mcp`,
+    dominio,
+    puerto: mcpPort
+  });
 });
 
 app.get('/api/admin/nginx', verificarToken, soloAdmin, (req, res) => {
