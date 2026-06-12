@@ -52,7 +52,7 @@
   .error.show{display:block;}
 
   .grid{
-    display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:24px;
+    display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:16px;margin-top:24px;
   }
   .card{
     background:var(--surface2);border:1px solid var(--border);border-radius:14px;
@@ -116,7 +116,6 @@
   @media(max-width:640px){
     body{align-items:flex-start;padding:12px;}
     .box{width:100%!important;max-width:100%;border-radius:14px;padding:20px 16px;}
-    .grid{grid-template-columns:1fr;}
     .tabs{overflow-x:auto;gap:4px;flex-wrap:nowrap;}
     .tab{padding:8px 12px;font-size:12px;white-space:nowrap;}
     table{font-size:12px;}
