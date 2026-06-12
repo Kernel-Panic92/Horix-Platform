@@ -12,13 +12,14 @@
     --text:#e8ecf4; --muted:#8892a8;
     --font:'Inter',sans-serif;
     --fs:15px;
+    --grad-1:230,126,34; --grad-2:247,148,79; --grad-3:196,98,16;
   }
   *{box-sizing:border-box;margin:0;padding:0;}
   body{
     background:var(--bg);color:var(--text);font-family:var(--font);font-size:var(--fs);
     min-height:100vh;
-    background: radial-gradient(ellipse at 20% 50%, rgba(230,126,34,0.06) 0%, transparent 60%),
-                radial-gradient(ellipse at 80% 20%, rgba(247,148,79,0.05) 0%, transparent 50%),
+    background: radial-gradient(ellipse at 20% 50%, rgba(var(--grad-1),0.06) 0%, transparent 60%),
+                radial-gradient(ellipse at 80% 20%, rgba(var(--grad-2),0.05) 0%, transparent 50%),
                 var(--bg);
   }
   .box{
@@ -62,7 +63,7 @@
   }
   .card:hover{
     border-color:var(--accent);transform:translateY(-4px);
-    box-shadow:0 12px 40px rgba(79,142,247,0.12);
+    box-shadow:0 12px 40px rgba(var(--grad-1),0.12);
   }
   .card-icon{font-size:48px;margin-bottom:12px;display:block;}
   .card-title{font-weight:700;font-size:var(--fs);margin-bottom:2px;}
@@ -73,9 +74,9 @@
   #login-screen{
     min-height:100vh;
     background:
-      radial-gradient(ellipse at 20% 30%, rgba(230,126,34,0.10) 0%, transparent 50%),
-      radial-gradient(ellipse at 80% 70%, rgba(247,148,79,0.07) 0%, transparent 40%),
-      radial-gradient(ellipse at 50% 0%, rgba(196,98,16,0.05) 0%, transparent 30%),
+      radial-gradient(ellipse at 20% 30%, rgba(var(--grad-1),0.10) 0%, transparent 50%),
+      radial-gradient(ellipse at 80% 70%, rgba(var(--grad-2),0.07) 0%, transparent 40%),
+      radial-gradient(ellipse at 50% 0%, rgba(var(--grad-3),0.05) 0%, transparent 30%),
       linear-gradient(160deg, #1a1615 0%, #12100f 100%);
     display:flex;align-items:center;justify-content:center;padding:24px;
   }
@@ -126,6 +127,9 @@
   .perm-item{display:flex;align-items:center;gap:8px;padding:4px 0;font-size:var(--fs);}
   .perm-item input[type=checkbox]{width:18px;height:18px;accent-color:var(--accent);cursor:pointer;}
   .perm-desc{font-size:12px;color:var(--muted);margin-left:24px;}
+  .rgb-slider{display:flex;align-items:center;gap:10px;margin-bottom:10px;}
+  .rgb-slider input[type=range]{flex:1;margin:0;accent-color:var(--accent);}
+  .rgb-val{font-size:13px;font-weight:600;min-width:32px;text-align:right;color:var(--text);}
 
   .back{font-size:13px;color:var(--muted);cursor:pointer;margin-bottom:16px;display:inline-block;}
   .back:hover{color:var(--text);}
@@ -264,6 +268,7 @@
       <div class="tab" data-tab="modulos" onclick="showAdminTab('modulos')">Módulos</div>
       <div class="tab" data-tab="mcp" onclick="showAdminTab('mcp')">MCP</div>
       <div class="tab" data-tab="smtp" onclick="showAdminTab('smtp')">SMTP</div>
+      <div class="tab" data-tab="apariencia" onclick="showAdminTab('apariencia')">Apariencia</div>
       <div class="tab" data-tab="nginx" onclick="showAdminTab('nginx')">Nginx</div>
     </div>
   <div class="tab-content active" id="tab-usuarios">
@@ -337,6 +342,71 @@
       <div id="smtp-result" style="margin-top:12px;"></div>
     </div>
   </div>
+  <div class="tab-content" id="tab-apariencia">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin:12px 0;">
+      <div style="font-size:var(--fs);font-weight:600;">Colores de acento</div>
+    </div>
+    <div class="perm-rol-section">
+      <div class="perm-rol-titulo">Gradientes de fondo</div>
+      <p style="font-size:13px;color:var(--muted);margin-bottom:16px;">Ajusta los colores de los degradados en toda la interfaz. Los cambios se ven en vivo.</p>
+      <div id="gradient-preview" style="height:60px;border-radius:10px;border:1px solid var(--border);margin-bottom:20px;background:linear-gradient(135deg,rgba(var(--grad-1),0.3),rgba(var(--grad-2),0.2));"></div>
+      <label>Color primario</label>
+      <div class="rgb-slider">
+        <span style="color:var(--danger);font-weight:700;">R</span>
+        <input type="range" id="grad-c1-r" min="0" max="255" value="230" oninput="previewGrad()">
+        <span class="rgb-val" id="grad-c1-rv">230</span>
+      </div>
+      <div class="rgb-slider">
+        <span style="color:var(--success);font-weight:700;">G</span>
+        <input type="range" id="grad-c1-g" min="0" max="255" value="126" oninput="previewGrad()">
+        <span class="rgb-val" id="grad-c1-gv">126</span>
+      </div>
+      <div class="rgb-slider">
+        <span style="color:var(--accent);font-weight:700;">B</span>
+        <input type="range" id="grad-c1-b" min="0" max="255" value="34" oninput="previewGrad()">
+        <span class="rgb-val" id="grad-c1-bv">34</span>
+      </div>
+      <div style="height:1px;background:var(--border);margin:12px 0;"></div>
+      <label>Color secundario</label>
+      <div class="rgb-slider">
+        <span style="color:var(--danger);font-weight:700;">R</span>
+        <input type="range" id="grad-c2-r" min="0" max="255" value="247" oninput="previewGrad()">
+        <span class="rgb-val" id="grad-c2-rv">247</span>
+      </div>
+      <div class="rgb-slider">
+        <span style="color:var(--success);font-weight:700;">G</span>
+        <input type="range" id="grad-c2-g" min="0" max="255" value="148" oninput="previewGrad()">
+        <span class="rgb-val" id="grad-c2-gv">148</span>
+      </div>
+      <div class="rgb-slider">
+        <span style="color:var(--accent);font-weight:700;">B</span>
+        <input type="range" id="grad-c2-b" min="0" max="255" value="79" oninput="previewGrad()">
+        <span class="rgb-val" id="grad-c2-bv">79</span>
+      </div>
+      <div style="height:1px;background:var(--border);margin:12px 0;"></div>
+      <label>Color terciario</label>
+      <div class="rgb-slider">
+        <span style="color:var(--danger);font-weight:700;">R</span>
+        <input type="range" id="grad-c3-r" min="0" max="255" value="196" oninput="previewGrad()">
+        <span class="rgb-val" id="grad-c3-rv">196</span>
+      </div>
+      <div class="rgb-slider">
+        <span style="color:var(--success);font-weight:700;">G</span>
+        <input type="range" id="grad-c3-g" min="0" max="255" value="98" oninput="previewGrad()">
+        <span class="rgb-val" id="grad-c3-gv">98</span>
+      </div>
+      <div class="rgb-slider">
+        <span style="color:var(--accent);font-weight:700;">B</span>
+        <input type="range" id="grad-c3-b" min="0" max="255" value="16" oninput="previewGrad()">
+        <span class="rgb-val" id="grad-c3-bv">16</span>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:16px;">
+        <button class="btn" onclick="saveGradConfig()">💾 Guardar colores</button>
+        <button class="btn btn-sm" onclick="resetGradConfig()" style="background:var(--surface2);color:var(--text);">↺ Restaurar</button>
+      </div>
+      <div id="grad-result" style="margin-top:12px;"></div>
+    </div>
+  </div>
   <div class="tab-content" id="tab-nginx">
     <div style="display:flex;justify-content:space-between;align-items:center;margin:12px 0;">
       <div style="font-size:var(--fs);font-weight:600;">Configuración Nginx</div>
@@ -347,7 +417,6 @@
     <div id="nginx-status"></div>
     <pre id="nginx-config" style="background:var(--surface2);border:1px solid var(--border);border-radius:9px;padding:16px;font-size:13px;overflow-x:auto;white-space:pre;max-height:400px;color:var(--text);margin-top:8px;"></pre>
   </div>
-</div>
 </div>
 
 <div class="modal-overlay" id="admin-form-overlay">

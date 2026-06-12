@@ -43,7 +43,8 @@ if (userCount === 0) {
 db.exec(`CREATE TABLE IF NOT EXISTS config (key TEXT PRIMARY KEY, value TEXT NOT NULL DEFAULT '')`);
 
 // Seed defaults
-const defaults = { smtp_host:'', smtp_port:'587', smtp_secure:'false', smtp_user:'', smtp_pass:'', smtp_from:'', smtp_from_name:'Horix Platform', smtp_allow_self_signed:'false', mcp_oauth_enabled:'false' };
+const defaults = { smtp_host:'', smtp_port:'587', smtp_secure:'false', smtp_user:'', smtp_pass:'', smtp_from:'', smtp_from_name:'Horix Platform', smtp_allow_self_signed:'false', mcp_oauth_enabled:'false',
+  grad_c1:'230,126,34', grad_c2:'247,148,79', grad_c3:'196,98,16' };
 for (const [k, v] of Object.entries(defaults)) {
   db.prepare("INSERT OR IGNORE INTO config (key, value) VALUES (?, ?)").run(k, v);
 }
@@ -171,6 +172,23 @@ app.post('/api/admin/smtp/test', verificarToken, soloAdmin, async (req, res) => 
   } catch (e) {
     res.json({ ok: false, error: e.message });
   }
+});
+
+// ── Global config (gradients, etc.) ──
+app.get('/api/config', (req, res) => {
+  const rows = db.prepare("SELECT key, value FROM config WHERE key LIKE 'grad_%' ORDER BY key").all();
+  const cfg = {};
+  for (const r of rows) cfg[r.key] = r.value;
+  res.json({ config: cfg });
+});
+
+app.put('/api/admin/config', verificarToken, soloAdmin, (req, res) => {
+  const allowed = ['grad_c1','grad_c2','grad_c3'];
+  const upsert = db.prepare('INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)');
+  for (const [k, v] of Object.entries(req.body)) {
+    if (allowed.includes(k)) upsert.run(k, String(v ?? ''));
+  }
+  res.json({ ok: true });
 });
 
 // ── Password recovery ──

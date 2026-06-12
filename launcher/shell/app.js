@@ -631,6 +631,7 @@ function showAdminTab(tab) {
   else if (tab === 'modulos') loadModulos();
    else if (tab === 'mcp') { loadMcpConfig(); loadMcpUrl(); }
    else if (tab === 'smtp') loadSmtpConfig();
+   else if (tab === 'apariencia') loadGradConfig();
    else if (tab === 'nginx') loadNginx();
 }
 
@@ -685,8 +686,103 @@ async function generarNginx() {
   }
 }
 
+// ── Gradient config ──
+async function loadGradConfig() {
+  try {
+    const res = await fetch('/api/config');
+    if (!res.ok) return;
+    const data = await res.json();
+    const c = data.config;
+    if (c.grad_c1) applyGrad('c1', c.grad_c1);
+    if (c.grad_c2) applyGrad('c2', c.grad_c2);
+    if (c.grad_c3) applyGrad('c3', c.grad_c3);
+  } catch {}
+}
+
+function applyGrad(name, rgbStr) {
+  const parts = rgbStr.split(',').map(Number);
+  if (parts.length !== 3) return;
+  document.documentElement.style.setProperty('--grad-' + name, rgbStr);
+  const id = 'grad-' + name + '-';
+  const ids = ['r','g','b'];
+  for (let i = 0; i < 3; i++) {
+    const el = document.getElementById(id + ids[i]);
+    if (el) el.value = parts[i];
+    const val = document.getElementById(id + ids[i] + 'v');
+    if (val) val.textContent = parts[i];
+  }
+  updateGradPreview();
+}
+
+function previewGrad() {
+  for (const name of ['c1','c2','c3']) {
+    const r = document.getElementById('grad-' + name + '-r').value;
+    const g = document.getElementById('grad-' + name + '-g').value;
+    const b = document.getElementById('grad-' + name + '-b').value;
+    const rgb = r + ',' + g + ',' + b;
+    document.documentElement.style.setProperty('--grad-' + name, rgb);
+    document.getElementById('grad-' + name + '-rv').textContent = r;
+    document.getElementById('grad-' + name + '-gv').textContent = g;
+    document.getElementById('grad-' + name + '-bv').textContent = b;
+  }
+  updateGradPreview();
+}
+
+function updateGradPreview() {
+  const el = document.getElementById('gradient-preview');
+  if (!el) return;
+  const c1 = getComputedStyle(document.documentElement).getPropertyValue('--grad-1').trim() || '230,126,34';
+  const c2 = getComputedStyle(document.documentElement).getPropertyValue('--grad-2').trim() || '247,148,79';
+  el.style.background = 'linear-gradient(135deg, rgba(' + c1 + ',0.3), rgba(' + c2 + ',0.2))';
+}
+
+async function saveGradConfig() {
+  const btn = document.querySelector('#tab-apariencia .btn');
+  btn.textContent = 'Guardando...';
+  btn.disabled = true;
+  try {
+    const body = {};
+    for (const name of ['c1','c2','c3']) {
+      const r = document.getElementById('grad-' + name + '-r').value;
+      const g = document.getElementById('grad-' + name + '-g').value;
+      const b = document.getElementById('grad-' + name + '-b').value;
+      body['grad_' + name] = r + ',' + g + ',' + b;
+    }
+    const res = await fetch('/api/admin/config', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + jwtToken },
+      body: JSON.stringify(body)
+    });
+    const data = await res.json();
+    document.getElementById('grad-result').innerHTML = data.ok
+      ? '<span style="color:var(--success);">✅ Colores guardados</span>'
+      : '<span style="color:var(--danger);">❌ Error al guardar</span>';
+  } catch (e) {
+    document.getElementById('grad-result').innerHTML = '<span style="color:var(--danger);">❌ ' + e.message + '</span>';
+  } finally {
+    btn.textContent = '💾 Guardar colores';
+    btn.disabled = false;
+  }
+}
+
+function resetGradConfig() {
+  const defs = { c1: '230,126,34', c2: '247,148,79', c3: '196,98,16' };
+  for (const [name, rgb] of Object.entries(defs)) {
+    const parts = rgb.split(',').map(Number);
+    document.documentElement.style.setProperty('--grad-' + name, rgb);
+    const ids = ['r','g','b'];
+    for (let i = 0; i < 3; i++) {
+      document.getElementById('grad-' + name + '-' + ids[i]).value = parts[i];
+      document.getElementById('grad-' + name + '-' + ids[i] + 'v').textContent = parts[i];
+    }
+  }
+  updateGradPreview();
+  document.getElementById('grad-result').innerHTML = '<span style="color:var(--muted);">↺ Colores restaurados (sin guardar)</span>';
+}
+
 // ── Session check ──
 (async () => {
+  await loadGradConfig();
   if (jwtToken) {
     try {
       const res = await fetch('/api/auth/me', {
