@@ -712,6 +712,7 @@ function applyGrad(name, rgbStr) {
     if (val) val.textContent = parts[i];
   }
   updateGradPreview();
+  applyGradientsToUI();
 }
 
 function previewGrad() {
@@ -726,6 +727,28 @@ function previewGrad() {
     document.getElementById('grad-' + name + '-bv').textContent = b;
   }
   updateGradPreview();
+  applyGradientsToUI();
+}
+
+function applyGradientsToUI() {
+  const c1 = getComputedStyle(document.documentElement).getPropertyValue('--grad-1').trim() || '230,126,34';
+  const c2 = getComputedStyle(document.documentElement).getPropertyValue('--grad-2').trim() || '247,148,79';
+  const c3 = getComputedStyle(document.documentElement).getPropertyValue('--grad-3').trim() || '196,98,16';
+  const bodyBg = `
+    radial-gradient(ellipse at 20% 50%, rgba(${c1},0.06) 0%, transparent 60%),
+    radial-gradient(ellipse at 80% 20%, rgba(${c2},0.05) 0%, transparent 50%),
+    var(--bg)
+  `;
+  document.body.style.background = bodyBg;
+  const loginScreen = document.getElementById('login-screen');
+  if (loginScreen) {
+    loginScreen.style.background = `
+      radial-gradient(ellipse at 20% 30%, rgba(${c1},0.10) 0%, transparent 50%),
+      radial-gradient(ellipse at 80% 70%, rgba(${c2},0.07) 0%, transparent 40%),
+      radial-gradient(ellipse at 50% 0%, rgba(${c3},0.05) 0%, transparent 30%),
+      linear-gradient(160deg, #1a1615 0%, #12100f 100%)
+    `;
+  }
 }
 
 function updateGradPreview() {
@@ -777,6 +800,7 @@ function resetGradConfig() {
     }
   }
   updateGradPreview();
+  applyGradientsToUI();
   document.getElementById('grad-result').innerHTML = '<span style="color:var(--muted);">↺ Colores restaurados (sin guardar)</span>';
 }
 
