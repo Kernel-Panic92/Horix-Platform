@@ -687,121 +687,119 @@ async function generarNginx() {
 }
 
 // ── Gradient config ──
-async function loadGradConfig() {
-  try {
-    const res = await fetch('/api/config');
-    if (!res.ok) return;
-    const data = await res.json();
-    const c = data.config;
-    if (c.grad_c1) applyGrad('c1', c.grad_c1);
-    if (c.grad_c2) applyGrad('c2', c.grad_c2);
-    if (c.grad_c3) applyGrad('c3', c.grad_c3);
-  } catch {}
+const GRAD_DEFAULTS = { c1: [230,126,34], c2: [247,148,79], c3: [196,98,16] };
+let gradColors = {};
+
+function gradBody(c1, c2) {
+  return 'radial-gradient(ellipse at 20% 50%, rgba(' + c1.join(',') + ',0.06) 0%, transparent 60%),' +
+         'radial-gradient(ellipse at 80% 20%, rgba(' + c2.join(',') + ',0.05) 0%, transparent 50%),' +
+         'var(--bg)';
 }
 
-function applyGrad(name, rgbStr) {
-  const parts = rgbStr.split(',').map(Number);
-  if (parts.length !== 3) return;
-  document.documentElement.style.setProperty('--grad-' + name, rgbStr);
-  const id = 'grad-' + name + '-';
-  const ids = ['r','g','b'];
-  for (let i = 0; i < 3; i++) {
-    const el = document.getElementById(id + ids[i]);
-    if (el) el.value = parts[i];
-    const val = document.getElementById(id + ids[i] + 'v');
-    if (val) val.textContent = parts[i];
-  }
-  updateGradPreview();
-  applyGradientsToUI();
+function gradLogin(c1, c2, c3) {
+  return 'radial-gradient(ellipse at 20% 30%, rgba(' + c1.join(',') + ',0.10) 0%, transparent 50%),' +
+         'radial-gradient(ellipse at 80% 70%, rgba(' + c2.join(',') + ',0.07) 0%, transparent 40%),' +
+         'radial-gradient(ellipse at 50% 0%, rgba(' + c3.join(',') + ',0.05) 0%, transparent 30%),' +
+         'linear-gradient(160deg, #1a1615 0%, #12100f 100%)';
+}
+
+function gradPreview(c1, c2) {
+  return 'linear-gradient(135deg, rgba(' + c1.join(',') + ',0.3), rgba(' + c2.join(',') + ',0.2))';
+}
+
+function applyGradients(c1, c2, c3) {
+  document.body.style.background = gradBody(c1, c2);
+  var loginEl = document.getElementById('login-screen');
+  if (loginEl) loginEl.style.background = gradLogin(c1, c2, c3);
+  var previewEl = document.getElementById('gradient-preview');
+  if (previewEl) previewEl.style.background = gradPreview(c1, c2);
+}
+
+function updateSliderVals(c1, c2, c3) {
+  var names = ['c1','c2','c3'], vals = [c1,c2,c3], chs = ['r','g','b'];
+  for (var i = 0; i < 3; i++)
+    for (var j = 0; j < 3; j++) {
+      var el = document.getElementById('grad-' + names[i] + '-' + chs[j]);
+      if (el) el.value = vals[i][j];
+      var vel = document.getElementById('grad-' + names[i] + '-' + chs[j] + 'v');
+      if (vel) vel.textContent = vals[i][j];
+    }
+}
+
+function readSliders() {
+  return [
+    [+document.getElementById('grad-c1-r').value, +document.getElementById('grad-c1-g').value, +document.getElementById('grad-c1-b').value],
+    [+document.getElementById('grad-c2-r').value, +document.getElementById('grad-c2-g').value, +document.getElementById('grad-c2-b').value],
+    [+document.getElementById('grad-c3-r').value, +document.getElementById('grad-c3-g').value, +document.getElementById('grad-c3-b').value]
+  ];
 }
 
 function previewGrad() {
-  for (const name of ['c1','c2','c3']) {
-    const r = document.getElementById('grad-' + name + '-r').value;
-    const g = document.getElementById('grad-' + name + '-g').value;
-    const b = document.getElementById('grad-' + name + '-b').value;
-    const rgb = r + ',' + g + ',' + b;
-    document.documentElement.style.setProperty('--grad-' + name, rgb);
-    document.getElementById('grad-' + name + '-rv').textContent = r;
-    document.getElementById('grad-' + name + '-gv').textContent = g;
-    document.getElementById('grad-' + name + '-bv').textContent = b;
-  }
-  updateGradPreview();
-  applyGradientsToUI();
+  var c = readSliders();
+  gradColors = { c1: c[0], c2: c[1], c3: c[2] };
+  updateSliderVals(c[0], c[1], c[2]);
+  applyGradients(c[0], c[1], c[2]);
+  localStorage.setItem('horix_grad', JSON.stringify({ c1: c[0], c2: c[1], c3: c[2] }));
 }
 
-function applyGradientsToUI() {
-  const c1 = getComputedStyle(document.documentElement).getPropertyValue('--grad-1').trim() || '230,126,34';
-  const c2 = getComputedStyle(document.documentElement).getPropertyValue('--grad-2').trim() || '247,148,79';
-  const c3 = getComputedStyle(document.documentElement).getPropertyValue('--grad-3').trim() || '196,98,16';
-  const bodyBg = `
-    radial-gradient(ellipse at 20% 50%, rgba(${c1},0.06) 0%, transparent 60%),
-    radial-gradient(ellipse at 80% 20%, rgba(${c2},0.05) 0%, transparent 50%),
-    var(--bg)
-  `;
-  document.body.style.background = bodyBg;
-  const loginScreen = document.getElementById('login-screen');
-  if (loginScreen) {
-    loginScreen.style.background = `
-      radial-gradient(ellipse at 20% 30%, rgba(${c1},0.10) 0%, transparent 50%),
-      radial-gradient(ellipse at 80% 70%, rgba(${c2},0.07) 0%, transparent 40%),
-      radial-gradient(ellipse at 50% 0%, rgba(${c3},0.05) 0%, transparent 30%),
-      linear-gradient(160deg, #1a1615 0%, #12100f 100%)
-    `;
+async function loadGradConfig() {
+  var c1, c2, c3;
+  try {
+    var res = await fetch('/api/config');
+    if (res.ok) {
+      var data = await res.json(), cfg = data.config || {};
+      if (cfg.grad_c1) c1 = cfg.grad_c1.split(',').map(Number);
+      if (cfg.grad_c2) c2 = cfg.grad_c2.split(',').map(Number);
+      if (cfg.grad_c3) c3 = cfg.grad_c3.split(',').map(Number);
+    }
+  } catch (e) { console.error('grad fetch fail', e); }
+  if (!c1) {
+    try {
+      var saved = localStorage.getItem('horix_grad');
+      if (saved) { var p = JSON.parse(saved); if (p.c1) { c1 = p.c1; c2 = p.c2; c3 = p.c3; } }
+    } catch (e) {}
   }
-}
-
-function updateGradPreview() {
-  const el = document.getElementById('gradient-preview');
-  if (!el) return;
-  const c1 = getComputedStyle(document.documentElement).getPropertyValue('--grad-1').trim() || '230,126,34';
-  const c2 = getComputedStyle(document.documentElement).getPropertyValue('--grad-2').trim() || '247,148,79';
-  el.style.background = 'linear-gradient(135deg, rgba(' + c1 + ',0.3), rgba(' + c2 + ',0.2))';
+  if (!c1) { c1 = GRAD_DEFAULTS.c1; c2 = GRAD_DEFAULTS.c2; c3 = GRAD_DEFAULTS.c3; }
+  gradColors = { c1: c1, c2: c2, c3: c3 };
+  updateSliderVals(c1, c2, c3);
+  applyGradients(c1, c2, c3);
 }
 
 async function saveGradConfig() {
-  const btn = document.querySelector('#tab-apariencia .btn');
+  var btn = document.querySelector('#tab-apariencia .btn');
+  if (!btn) return;
   btn.textContent = 'Guardando...';
   btn.disabled = true;
   try {
-    const body = {};
-    for (const name of ['c1','c2','c3']) {
-      const r = document.getElementById('grad-' + name + '-r').value;
-      const g = document.getElementById('grad-' + name + '-g').value;
-      const b = document.getElementById('grad-' + name + '-b').value;
-      body['grad_' + name] = r + ',' + g + ',' + b;
-    }
-    const res = await fetch('/api/admin/config', {
+    var c = readSliders(), body = {
+      grad_c1: c[0].join(','),
+      grad_c2: c[1].join(','),
+      grad_c3: c[2].join(',')
+    };
+    var res = await fetch('/api/admin/config', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + jwtToken },
       body: JSON.stringify(body)
     });
-    const data = await res.json();
+    var data = await res.json();
     document.getElementById('grad-result').innerHTML = data.ok
-      ? '<span style="color:var(--success);">✅ Colores guardados</span>'
-      : '<span style="color:var(--danger);">❌ Error al guardar</span>';
+      ? '<span style="color:var(--success);">\u2705 Colores guardados</span>'
+      : '<span style="color:var(--danger);">\u274c Error al guardar</span>';
+    if (data.ok) localStorage.setItem('horix_grad', JSON.stringify({ c1: c[0], c2: c[1], c3: c[2] }));
   } catch (e) {
-    document.getElementById('grad-result').innerHTML = '<span style="color:var(--danger);">❌ ' + e.message + '</span>';
+    document.getElementById('grad-result').innerHTML = '<span style="color:var(--danger);">\u274c ' + e.message + '</span>';
   } finally {
-    btn.textContent = '💾 Guardar colores';
+    btn.textContent = '\uD83D\uDCBE Guardar colores';
     btn.disabled = false;
   }
 }
 
 function resetGradConfig() {
-  const defs = { c1: '230,126,34', c2: '247,148,79', c3: '196,98,16' };
-  for (const [name, rgb] of Object.entries(defs)) {
-    const parts = rgb.split(',').map(Number);
-    document.documentElement.style.setProperty('--grad-' + name, rgb);
-    const ids = ['r','g','b'];
-    for (let i = 0; i < 3; i++) {
-      document.getElementById('grad-' + name + '-' + ids[i]).value = parts[i];
-      document.getElementById('grad-' + name + '-' + ids[i] + 'v').textContent = parts[i];
-    }
-  }
-  updateGradPreview();
-  applyGradientsToUI();
-  document.getElementById('grad-result').innerHTML = '<span style="color:var(--muted);">↺ Colores restaurados (sin guardar)</span>';
+  var c1 = GRAD_DEFAULTS.c1, c2 = GRAD_DEFAULTS.c2, c3 = GRAD_DEFAULTS.c3;
+  gradColors = { c1: c1, c2: c2, c3: c3 };
+  updateSliderVals(c1, c2, c3);
+  applyGradients(c1, c2, c3);
+  document.getElementById('grad-result').innerHTML = '<span style="color:var(--muted);">\u21ba Colores restaurados (sin guardar)</span>';
 }
 
 // ── Session check ──
