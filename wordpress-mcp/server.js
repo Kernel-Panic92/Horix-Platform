@@ -20,45 +20,36 @@ app.use(express.json());
 function rpcResult(id, result) { return { jsonrpc: '2.0', result, id }; }
 function rpcError(id, code, message) { return { jsonrpc: '2.0', error: { code, message }, id }; }
 
+async function apiFetch(method, basePath, path, body) {
+  const url = WP_URL + basePath + path;
+  const opts = { method, headers: { 'Authorization': AUTH } };
+  if (body) { opts.headers['Content-Type'] = 'application/json'; opts.body = JSON.stringify(body); }
+  const r = await fetch(url, opts);
+  if (!r.ok) throw new Error('API error (' + r.status + '): ' + (await r.text()).slice(0, 500));
+  return r;
+}
+
 async function wpGet(path) {
-  const r = await fetch(WP_URL + '/wp-json/wp/v2' + path, {
-    headers: { 'Authorization': AUTH }
-  });
-  if (!r.ok) throw new Error('WP API error: ' + r.status + ' ' + (await r.text()));
+  const r = await apiFetch('GET', '/wp-json/wp/v2', path);
   const total = parseInt(r.headers.get('X-WP-Total') || '0');
   const data = await r.json();
   data._total = total;
   return data;
 }
 
-async function wpPost(path, data) {
-  const r = await fetch(WP_URL + '/wp-json/wp/v2' + path, {
-    method: 'POST',
-    headers: { 'Authorization': AUTH, 'Content-Type': 'application/json' },
-    body: JSON.stringify(data)
-  });
-  if (!r.ok) throw new Error('WP API error: ' + r.status + ' ' + (await r.text()));
-  return r.json();
-}
+async function wpPost(path, data) { const r = await apiFetch('POST', '/wp-json/wp/v2', path, data); return r.json(); }
+async function wpPut(path, data) { const r = await apiFetch('PUT', '/wp-json/wp/v2', path, data); return r.json(); }
+async function wpDelete(path) { const r = await apiFetch('DELETE', '/wp-json/wp/v2', path); return r.json(); }
 
-async function wpPut(path, data) {
-  const r = await fetch(WP_URL + '/wp-json/wp/v2' + path, {
-    method: 'PUT',
-    headers: { 'Authorization': AUTH, 'Content-Type': 'application/json' },
-    body: JSON.stringify(data)
-  });
-  if (!r.ok) throw new Error('WP API error: ' + r.status + ' ' + (await r.text()));
-  return r.json();
+// ── WooCommerce API helpers ──
+async function wcGet(path) {
+  const r = await apiFetch('GET', '/wp-json/wc/v3', path);
+  const data = await r.json();
+  return data;
 }
-
-async function wpDelete(path) {
-  const r = await fetch(WP_URL + '/wp-json/wp/v2' + path, {
-    method: 'DELETE',
-    headers: { 'Authorization': AUTH }
-  });
-  if (!r.ok) throw new Error('WP API error: ' + r.status + ' ' + (await r.text()));
-  return r.json();
-}
+async function wcPost(path, data) { const r = await apiFetch('POST', '/wp-json/wc/v3', path, data); return r.json(); }
+async function wcPut(path, data) { const r = await apiFetch('PUT', '/wp-json/wc/v3', path, data); return r.json(); }
+async function wcDelete(path) { const r = await apiFetch('DELETE', '/wp-json/wc/v3', path); return r.json(); }
 
 // Tools definition
 const tools = [
@@ -209,6 +200,128 @@ const tools = [
       type: 'object',
       properties: {}
     }
+  },
+  // ── WooCommerce ──
+  {
+    name: 'listar_productos',
+    description: 'Lista productos de WooCommerce.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        search: { type: 'string', description: 'Buscar por texto' },
+        per_page: { type: 'number', default: 10 },
+        page: { type: 'number', default: 1 },
+        categoria: { type: 'number', description: 'ID de categoria de producto' },
+        status: { type: 'string', enum: ['publish', 'draft', 'pending', 'private'], description: 'Estado del producto' }
+      }
+    }
+  },
+  {
+    name: 'obtener_producto',
+    description: 'Obtiene un producto de WooCommerce por su ID.',
+    inputSchema: {
+      type: 'object',
+      properties: { id: { type: 'number', description: 'ID del producto' } },
+      required: ['id']
+    }
+  },
+  {
+    name: 'crear_producto',
+    description: 'REQUIERE CONFIRMACION DEL USUARIO. Crea un nuevo producto en WooCommerce.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        nombre: { type: 'string', description: 'Nombre del producto' },
+        descripcion: { type: 'string', description: 'Descripcion en HTML' },
+        descripcion_corta: { type: 'string', description: 'Descripcion breve' },
+        precio: { type: 'string', description: 'Precio regular (ej: 29.99)' },
+        estado: { type: 'string', enum: ['publish', 'draft', 'pending'], default: 'draft' },
+        categoria: { type: 'number', description: 'ID de categoria' },
+        stock: { type: 'number', description: 'Cantidad en stock' },
+        sku: { type: 'string', description: 'Codigo SKU unico' }
+      },
+      required: ['nombre', 'precio']
+    }
+  },
+  {
+    name: 'actualizar_producto',
+    description: 'REQUIERE CONFIRMACION DEL USUARIO. Actualiza un producto existente en WooCommerce.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'number', description: 'ID del producto' },
+        nombre: { type: 'string' },
+        descripcion: { type: 'string' },
+        descripcion_corta: { type: 'string' },
+        precio: { type: 'string' },
+        estado: { type: 'string', enum: ['publish', 'draft', 'pending', 'private'] },
+        categoria: { type: 'number' },
+        stock: { type: 'number' },
+        sku: { type: 'string' }
+      },
+      required: ['id']
+    }
+  },
+  {
+    name: 'eliminar_producto',
+    description: 'REQUIERE CONFIRMACION DEL USUARIO. Elimina un producto de WooCommerce.',
+    inputSchema: {
+      type: 'object',
+      properties: { id: { type: 'number', description: 'ID del producto' } },
+      required: ['id']
+    }
+  },
+  {
+    name: 'listar_pedidos',
+    description: 'Lista pedidos de WooCommerce.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        status: { type: 'string', enum: ['pending', 'processing', 'on-hold', 'completed', 'cancelled', 'refunded', 'failed', 'trash'], description: 'Filtrar por estado' },
+        per_page: { type: 'number', default: 10 },
+        page: { type: 'number', default: 1 },
+        search: { type: 'string', description: 'Buscar por cliente o ID' }
+      }
+    }
+  },
+  {
+    name: 'obtener_pedido',
+    description: 'Obtiene un pedido de WooCommerce por su ID.',
+    inputSchema: {
+      type: 'object',
+      properties: { id: { type: 'number', description: 'ID del pedido' } },
+      required: ['id']
+    }
+  },
+  {
+    name: 'listar_clientes',
+    description: 'Lista clientes de WooCommerce.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        search: { type: 'string' },
+        per_page: { type: 'number', default: 10 },
+        page: { type: 'number', default: 1 },
+        rol: { type: 'string', default: 'customer', description: 'Rol de usuario' }
+      }
+    }
+  },
+  {
+    name: 'obtener_cliente',
+    description: 'Obtiene un cliente de WooCommerce por su ID.',
+    inputSchema: {
+      type: 'object',
+      properties: { id: { type: 'number', description: 'ID del cliente' } },
+      required: ['id']
+    }
+  },
+  {
+    name: 'estadisticas_woocommerce',
+    description: 'Obtiene estadisticas generales de WooCommerce.',
+    inputSchema: {
+      type: 'object',
+      properties: {}
+    }
   }
 ];
 
@@ -327,6 +440,103 @@ async function handleToolCall(name, args) {
         categorias: cats._total,
         etiquetas: tags._total,
         sitio: WP_URL
+      };
+    }
+
+    // ── WooCommerce ──
+    case 'listar_productos': {
+      const qs = new URLSearchParams();
+      if (args.search) qs.set('search', args.search);
+      qs.set('per_page', String(args.per_page || 10));
+      qs.set('page', String(args.page || 1));
+      if (args.categoria) qs.set('category', String(args.categoria));
+      if (args.status) qs.set('status', args.status);
+      const data = await wcGet('/products?' + qs.toString());
+      return data.map(p => ({ id: p.id, nombre: p.name, precio: p.price, sku: p.sku, stock: p.stock_quantity, estado: p.status, tipo: p.type, link: p.permalink }));
+    }
+
+    case 'obtener_producto': {
+      const p = await wcGet('/products/' + args.id);
+      return { id: p.id, nombre: p.name, descripcion: p.description, descripcion_corta: p.short_description, precio: p.price, sku: p.sku, stock: p.stock_quantity, estado: p.status, categorias: p.categories?.map(c => ({ id: c.id, nombre: c.name })), imagen: p.images?.[0]?.src, link: p.permalink };
+    }
+
+    case 'crear_producto': {
+      const body = { name: args.nombre, regular_price: String(args.precio), description: args.descripcion || '', short_description: args.descripcion_corta || '', status: args.estado || 'draft' };
+      if (args.categoria) body.categories = [{ id: args.categoria }];
+      if (args.sku) body.sku = args.sku;
+      if (args.stock !== undefined) { body.manage_stock = true; body.stock_quantity = args.stock; }
+      const p = await wcPost('/products', body);
+      return { id: p.id, nombre: p.name, precio: p.price, sku: p.sku, link: p.permalink };
+    }
+
+    case 'actualizar_producto': {
+      const body = {};
+      if (args.nombre) body.name = args.nombre;
+      if (args.precio) body.regular_price = String(args.precio);
+      if (args.descripcion !== undefined) body.description = args.descripcion;
+      if (args.descripcion_corta !== undefined) body.short_description = args.descripcion_corta;
+      if (args.estado) body.status = args.estado;
+      if (args.categoria) body.categories = [{ id: args.categoria }];
+      if (args.sku) body.sku = args.sku;
+      if (args.stock !== undefined) { body.manage_stock = true; body.stock_quantity = args.stock; }
+      const p = await wcPut('/products/' + args.id, body);
+      return { id: p.id, nombre: p.name, precio: p.price, sku: p.sku, link: p.permalink };
+    }
+
+    case 'eliminar_producto': {
+      const r = await wcDelete('/products/' + args.id + '?force=true');
+      return { deleted: true, id: r.id };
+    }
+
+    case 'listar_pedidos': {
+      const qs = new URLSearchParams();
+      if (args.status) qs.set('status', args.status);
+      qs.set('per_page', String(args.per_page || 10));
+      qs.set('page', String(args.page || 1));
+      if (args.search) qs.set('search', args.search);
+      const data = await wcGet('/orders?' + qs.toString());
+      return data.map(o => ({ id: o.id, numero: o.number, cliente: o.billing?.first_name + ' ' + o.billing?.last_name, email: o.billing?.email, total: o.total, estado: o.status, fecha: o.date_created, articulos: o.line_items?.length }));
+    }
+
+    case 'obtener_pedido': {
+      const o = await wcGet('/orders/' + args.id);
+      return {
+        id: o.id, numero: o.number, estado: o.status, total: o.total, subtotal: o.subtotal, impuestos: o.total_tax,
+        fecha: o.date_created, nota: o.customer_note,
+        cliente: { nombre: o.billing?.first_name + ' ' + o.billing?.last_name, email: o.billing?.email, telefono: o.billing?.phone, direccion: o.billing?.address_1 + ', ' + o.billing?.city + ', ' + o.billing?.state },
+        envio: { metodo: o.shipping_lines?.[0]?.method_title, total: o.shipping_lines?.[0]?.total, direccion: o.shipping?.address_1 + ', ' + o.shipping?.city + ', ' + o.shipping?.state },
+        articulos: o.line_items?.map(i => ({ producto: i.name, cantidad: i.quantity, precio: i.price, total: i.total, sku: i.sku })),
+        link: o.permalink
+      };
+    }
+
+    case 'listar_clientes': {
+      const qs = new URLSearchParams();
+      if (args.search) qs.set('search', args.search);
+      qs.set('per_page', String(args.per_page || 10));
+      qs.set('page', String(args.page || 1));
+      if (args.rol) qs.set('role', args.rol);
+      const data = await wcGet('/customers?' + qs.toString());
+      return data.map(c => ({ id: c.id, nombre: c.first_name + ' ' + c.last_name, email: c.email, rol: c.role, pedidos: c.orders_count, total_gastado: c.total_spent, fecha_registro: c.date_created }));
+    }
+
+    case 'obtener_cliente': {
+      const c = await wcGet('/customers/' + args.id);
+      return { id: c.id, nombre: c.first_name + ' ' + c.last_name, email: c.email, telefono: c.phone, rol: c.role, pedidos: c.orders_count, total_gastado: c.total_spent, direccion: c.billing?.address_1 + ', ' + c.billing?.city + ', ' + c.billing?.state, fecha_registro: c.date_created };
+    }
+
+    case 'estadisticas_woocommerce': {
+      const [products, orders, customers] = await Promise.all([
+        wcGet('/reports/products/totals'),
+        wcGet('/reports/orders/totals'),
+        wcGet('/customers?per_page=1')
+      ]);
+      const orderStats = {};
+      if (Array.isArray(orders)) for (const o of orders) orderStats[o.slug] = o.total;
+      return {
+        productos: Array.isArray(products) ? products.reduce((a, c) => a + c.total, 0) : 0,
+        pedidos: orderStats,
+        clientes: Array.isArray(customers) ? (customers._total || customers.length) : 0
       };
     }
 
