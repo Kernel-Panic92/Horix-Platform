@@ -650,6 +650,7 @@ async function ensureMcpSession(mod) {
       mcpSessions.set(mod.id, { sessionId, ts: Date.now() });
       return sessionId;
     }
+    if (data.error) console.warn(`[MCP] ${mod.id} init error:`, data.error.message);
   } catch (e) { console.warn(`[MCP] Failed to initialize session for ${mod.id}:`, e.message); }
   return null;
 }
@@ -684,6 +685,14 @@ const mcpGatewaySessions = new Map();
 const mcpOAuthClients = new Map();
 const mcpOAuthCodes = new Map();
 
+// Cleanup stale gateway sessions every 10 min
+setInterval(() => {
+  const cutoff = Date.now() - 3600000;
+  for (const [sid, s] of mcpGatewaySessions) {
+    if (s.createdAt < cutoff) mcpGatewaySessions.delete(sid);
+  }
+}, 600000);
+
 function rpcResult(id, result) { return { jsonrpc: '2.0', result, id }; }
 function rpcError(id, code, message) { return { jsonrpc: '2.0', error: { code, message }, id }; }
 
@@ -703,7 +712,7 @@ async function processMcpMessage(msg) {
 
   const sessionId = msg.sessionId || '';
   if (sessionId && !mcpGatewaySessions.has(sessionId)) {
-    return rpcError(id, -32001, 'Sesión inválida');
+    console.warn('[MCP] Unknown sessionId, proceeding anyway');
   }
 
   if (msg.method === 'tools/list') {
