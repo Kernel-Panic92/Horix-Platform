@@ -78,6 +78,10 @@ if [ -d "$INSTALL_DIR/launcher" ]; then
   cd "$INSTALL_DIR/launcher"
   npm install --omit=dev 2>/dev/null || true
 fi
+if [ -d "$INSTALL_DIR/wordpress-mcp" ]; then
+  cd "$INSTALL_DIR/wordpress-mcp"
+  npm install --omit=dev 2>/dev/null || true
+fi
 
 echo ">>> Arrancando servicios..."
 pm2 delete horix-launcher 2>/dev/null || true

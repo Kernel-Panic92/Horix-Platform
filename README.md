@@ -10,19 +10,19 @@ Modular ERP platform with independent micro-frontends. Each module has its own a
                     │  Load Balancer│
                     └──────┬───────┘
                            │
-              ┌────────────┼────────────┐
-              ▼            ▼            ▼
-        ┌──────────┐ ┌──────────┐ ┌──────────┐
-        │  Horix   │ │ Launcher │ │ DocFlow  │
-        │  :443    │ │ :9443    │ │ :9442    │
-        └──────────┘ └──────────┘ └──────────┘
+              ┌────────────┼────────────┬─────────────┐
+              ▼            ▼            ▼             ▼
+        ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐
+        │  Horix   │ │ Launcher │ │ DocFlow  │ │WordPress │
+        │  :443    │ │ :9443    │ │ :9442    │ │  :3006   │
+        └──────────┘ └──────────┘ └──────────┘ └──────────┘
 ```
 
 | Module | Tech | MCP Tools |
 |--------|------|-----------|
 | **Launcher** | Express, SQLite | Gateway, health, config, nginx gen |
 | **Horix** | Express, SQLite | 16 tools (registros, empleados, reportes) |
-| **DocFlow** | Express, PostgreSQL | 13 tools (facturas, dashboard, eventos) |
+| **WordPress** | Express | 12 tools (posts, pages, medios, categorias, busqueda) |
 
 ## Quick Start
 
@@ -84,6 +84,63 @@ location /mcp-gateway/ {
 
 Luego usar `https://dominio/mcp-gateway/mcp` sin OAuth fields.
 
+## WordPress MCP
+
+Integración con WordPress vía REST API + Application Password.
+
+### Setup
+
+```bash
+# 1. Instalar dependencias
+cd /opt/horix-platform/wordpress-mcp
+npm install
+sudo npm install -g pm2  # si no está instalado
+
+# 2. Crear .env con credenciales
+cat > .env <<EOF
+PORT=3006
+WP_URL=https://tusitio.com
+WP_USER=admin
+WP_APP_PASS=xxxx xxxx xxxx xxxx xxxx xxxx
+EOF
+
+# 3. Iniciar servicio
+pm2 start server.js --name wordpress-mcp
+pm2 save
+
+# 4. Registrar en el Launcher
+# Admin → Módulos → Agregar módulo:
+#   Nombre: WordPress
+#   URL: http://localhost:3006
+#   Proxy Prefix: /wordpress
+#   MCP: ✅ habilitado
+```
+
+Las herramientas aparecerán en el gateway con prefijo `wordpress_*` (ej: `wordpress_listar_posts`).
+
+### Herramientas disponibles
+
+| Tool | Descripción |
+|------|-------------|
+| `wordpress_listar_posts` | Lista posts con filtros (estado, búsqueda, categoría) |
+| `wordpress_obtener_post` | Obtiene un post por ID |
+| `wordpress_crear_post` | Crea un nuevo post (requiere confirmación) |
+| `wordpress_actualizar_post` | Actualiza un post existente (requiere confirmación) |
+| `wordpress_eliminar_post` | Envía un post a papelera (requiere confirmación) |
+| `wordpress_listar_paginas` | Lista páginas |
+| `wordpress_obtener_pagina` | Obtiene una página por ID |
+| `wordpress_listar_categorias` | Lista categorías |
+| `wordpress_listar_etiquetas` | Lista etiquetas |
+| `wordpress_listar_medios` | Lista archivos multimedia |
+| `wordpress_buscar` | Busca en todo el sitio |
+| `wordpress_estadisticas` | Estadísticas generales del sitio |
+
+### Application Password
+
+1. En WordPress: Usuarios → Perfil → **Application Passwords**
+2. Crear una nueva contraseña (ej: "Claude MCP")
+3. Copiar el string y ponerlo en `WP_APP_PASS`
+
 ## Features
 
 - **Auth**: login JWT por módulo (independiente), roles admin/operador
@@ -91,6 +148,7 @@ Luego usar `https://dominio/mcp-gateway/mcp` sin OAuth fields.
 - **Password Recovery**: SMTP configurable desde Admin, reset links con 1h de expiración
 - **SMTP Config**: Admin → SMTP, con botón de prueba
 - **MCP Gateway**: sesiones por módulo, auto-retry, health checks
+- **WordPress MCP**: CRUD de contenido vía REST API + Application Password
 - **Responsive**: mobile-friendly (max-width 640px)
 
 ## Config

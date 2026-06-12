@@ -1,0 +1,1 @@
+{"name":"wordpress-mcp","version":"1.0.0","private":true,"dependencies":{"express":"^4.18","dotenv":"^16.4"}}
