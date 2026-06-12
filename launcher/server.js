@@ -250,12 +250,13 @@ app.get('/api/admin/usuarios', verificarToken, soloAdmin, (req, res) => {
 });
 
 app.post('/api/admin/usuarios', verificarToken, soloAdmin, (req, res) => {
-  const { nombre, email, password } = req.body;
+  const { nombre, email, password, rol } = req.body;
   if (!nombre || !email || !password) return res.status(400).json({ error: 'Campos requeridos' });
+  const userRol = (rol === 'admin' || rol === 'operador') ? rol : 'operador';
   try {
     const hash = bcrypt.hashSync(password, 10);
-    const result = db.prepare('INSERT INTO usuarios (nombre, email, password_hash, rol) VALUES (?, ?, ?, ?)').run(nombre, email.toLowerCase().trim(), hash, 'admin');
-    res.json({ id: result.lastInsertRowid, nombre, email: email.toLowerCase().trim(), rol: 'admin', activo: 1 });
+    const result = db.prepare('INSERT INTO usuarios (nombre, email, password_hash, rol) VALUES (?, ?, ?, ?)').run(nombre, email.toLowerCase().trim(), hash, userRol);
+    res.json({ id: result.lastInsertRowid, nombre, email: email.toLowerCase().trim(), rol: userRol, activo: 1 });
   } catch (e) {
     if (e.message.includes('UNIQUE')) return res.status(409).json({ error: 'El email ya existe' });
     console.error('[Create user]', e); res.status(500).json({ error: 'Error interno' });
@@ -263,7 +264,7 @@ app.post('/api/admin/usuarios', verificarToken, soloAdmin, (req, res) => {
 });
 
 app.put('/api/admin/usuarios/:id', verificarToken, soloAdmin, (req, res) => {
-  const { nombre, email, password, activo } = req.body;
+  const { nombre, email, password, activo, rol } = req.body;
   const id = parseInt(req.params.id);
   if (isNaN(id)) return res.status(400).json({ error: 'ID inválido' });
   const user = db.prepare('SELECT * FROM usuarios WHERE id = ?').get(id);
@@ -273,6 +274,7 @@ app.put('/api/admin/usuarios/:id', verificarToken, soloAdmin, (req, res) => {
   if (email !== undefined) { updates.push('email = ?'); params.push(email.toLowerCase().trim()); }
   if (password) { updates.push('password_hash = ?'); params.push(bcrypt.hashSync(password, 10)); }
   if (activo !== undefined) { updates.push('activo = ?'); params.push(activo ? 1 : 0); }
+  if (rol && (rol === 'admin' || rol === 'operador')) { updates.push('rol = ?'); params.push(rol); }
   if (!updates.length) return res.status(400).json({ error: 'Sin cambios' });
   updates.push("actualizado = datetime('now')"); params.push(id);
   try {
