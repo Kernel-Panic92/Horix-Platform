@@ -138,7 +138,22 @@ function soloAdmin(req, res, next) {
   next();
 }
 
-app.post('/api/auth/login', async (req, res) => {
+// ── Login rate limiter: 5 attempts per IP per 60s window ──
+var loginAttempts = {};
+setInterval(function() { loginAttempts = {}; }, 60000);
+function loginRateLimit(req, res, next) {
+  var ip = req.ip || req.connection.remoteAddress || 'unknown';
+  var now = Date.now();
+  if (!loginAttempts[ip]) loginAttempts[ip] = [];
+  loginAttempts[ip] = loginAttempts[ip].filter(function(t) { return now - t < 60000; });
+  if (loginAttempts[ip].length >= 5) {
+    return res.status(429).json({ error: 'Demasiados intentos. Intenta de nuevo en 1 minuto.' });
+  }
+  loginAttempts[ip].push(now);
+  next();
+}
+
+app.post('/api/auth/login', loginRateLimit, async (req, res) => {
   const { email, password } = req.body;
   if (!email || !password) return res.status(400).json({ error: 'Campos requeridos' });
   try {
@@ -217,7 +232,7 @@ function getDominioYLauncherPort() {
   return { dominio, launcherPort };
 }
 
-app.post('/api/auth/forgot', (req, res) => {
+app.post('/api/auth/forgot', loginRateLimit, (req, res) => {
   const { email } = req.body;
   if (!email) return res.status(400).json({ error: 'Email requerido' });
   const user = db.prepare('SELECT id, email, nombre FROM usuarios WHERE email = ? AND activo = 1').get(email.toLowerCase().trim());
