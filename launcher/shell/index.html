@@ -281,6 +281,7 @@
       <div class="tab" data-tab="mcp" onclick="showAdminTab('mcp')">MCP</div>
       <div class="tab" data-tab="smtp" onclick="showAdminTab('smtp')">SMTP</div>
       <div class="tab" data-tab="apariencia" onclick="showAdminTab('apariencia')">Apariencia</div>
+      <div class="tab" data-tab="seguridad" onclick="showAdminTab('seguridad')">Seguridad</div>
       <div class="tab" data-tab="nginx" onclick="showAdminTab('nginx')">Nginx</div>
     </div>
   <div class="tab-content active" id="tab-usuarios">
@@ -417,6 +418,33 @@
         <button class="btn btn-sm" onclick="resetGradConfig()" style="background:var(--surface2);color:var(--text);">↺ Restaurar</button>
       </div>
       <div id="grad-result" style="margin-top:12px;"></div>
+    </div>
+  </div>
+  <div class="tab-content" id="tab-seguridad">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin:12px 0;">
+      <div style="font-size:var(--fs);font-weight:600;">Rate Limiter</div>
+    </div>
+    <div class="perm-rol-section">
+      <div class="perm-rol-titulo">Límite de intentos de inicio de sesión</div>
+      <p style="font-size:13px;color:var(--muted);margin-bottom:16px;">Protección contra fuerza bruta. Se aplica por IP.</p>
+      <label>Máximo de intentos</label>
+      <input type="number" id="rl-max" min="1" max="100" value="5" style="width:120px;">
+      <label>Ventana de tiempo (segundos)</label>
+      <input type="number" id="rl-window" min="10" max="3600" value="60" style="width:120px;">
+      <div style="display:flex;gap:8px;margin-top:8px;">
+        <button class="btn" onclick="saveRateLimitConfig()">💾 Guardar</button>
+      </div>
+      <div id="rl-result" style="margin-top:12px;"></div>
+    </div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin:20px 0 12px;">
+      <div style="font-size:var(--fs);font-weight:600;">Registro de accesos</div>
+      <button class="btn btn-sm" onclick="loadLoginLogs()">🔄 Recargar</button>
+    </div>
+    <div style="overflow-x:auto;">
+      <table id="login-logs-table">
+        <thead><tr><th>Fecha</th><th>IP</th><th>Email</th><th>Estado</th></tr></thead>
+        <tbody></tbody>
+      </table>
     </div>
   </div>
   <div class="tab-content" id="tab-nginx">

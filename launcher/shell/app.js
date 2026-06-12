@@ -632,6 +632,7 @@ function showAdminTab(tab) {
    else if (tab === 'mcp') { loadMcpConfig(); loadMcpUrl(); }
    else if (tab === 'smtp') loadSmtpConfig();
    else if (tab === 'apariencia') loadGradConfig();
+   else if (tab === 'seguridad') { loadRateLimitConfig(); loadLoginLogs(); }
    else if (tab === 'nginx') loadNginx();
 }
 
@@ -684,6 +685,55 @@ async function generarNginx() {
     btn.disabled = false;
     btn.textContent = '⚡ Generar y recargar';
   }
+}
+
+// ── Rate limit config + login logs ──
+async function loadRateLimitConfig() {
+  try {
+    var res = await fetch('/api/admin/config', { headers: { 'Authorization': 'Bearer ' + jwtToken } });
+    if (!res.ok) return;
+    var data = await res.json(), cfg = data.config || {};
+    document.getElementById('rl-max').value = cfg.rate_limit_max || '5';
+    document.getElementById('rl-window').value = cfg.rate_limit_window || '60';
+  } catch (e) {}
+}
+
+async function saveRateLimitConfig() {
+  var btn = document.querySelector('#tab-seguridad .btn');
+  btn.textContent = 'Guardando...';
+  btn.disabled = true;
+  try {
+    var body = { rate_limit_max: document.getElementById('rl-max').value, rate_limit_window: document.getElementById('rl-window').value };
+    var res = await fetch('/api/admin/config', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + jwtToken },
+      body: JSON.stringify(body)
+    });
+    var data = await res.json();
+    document.getElementById('rl-result').innerHTML = data.ok
+      ? '<span style="color:var(--success);">\u2705 Guardado</span>'
+      : '<span style="color:var(--danger);">\u274c Error</span>';
+  } catch (e) {
+    document.getElementById('rl-result').innerHTML = '<span style="color:var(--danger);">\u274c ' + e.message + '</span>';
+  } finally {
+    btn.textContent = '\uD83D\uDCBE Guardar';
+    btn.disabled = false;
+  }
+}
+
+async function loadLoginLogs() {
+  try {
+    var res = await fetch('/api/admin/login-logs', { headers: { 'Authorization': 'Bearer ' + jwtToken } });
+    if (!res.ok) return;
+    var data = await res.json();
+    var tbody = document.querySelector('#login-logs-table tbody');
+    tbody.innerHTML = (data.logs || []).map(function(r) {
+      var badge = r.exitoso
+        ? '<span class="badge badge-admin">Exitoso</span>'
+        : '<span class="badge badge-inactivo">Fallido</span>';
+      return '<tr><td style="white-space:nowrap;">' + r.fecha + '</td><td>' + r.ip + '</td><td>' + r.email + '</td><td>' + badge + '</td></tr>';
+    }).join('');
+  } catch (e) {}
 }
 
 // ── Gradient config ──

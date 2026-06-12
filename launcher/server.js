@@ -50,7 +50,8 @@ db.exec(`CREATE TABLE IF NOT EXISTS config (key TEXT PRIMARY KEY, value TEXT NOT
 
 // Seed defaults
 const defaults = { smtp_host:'', smtp_port:'587', smtp_secure:'false', smtp_user:'', smtp_pass:'', smtp_from:'', smtp_from_name:'Horix Platform', smtp_allow_self_signed:'false', mcp_oauth_enabled:'false',
-  grad_c1:'230,126,34', grad_c2:'247,148,79', grad_c3:'196,98,16' };
+  grad_c1:'230,126,34', grad_c2:'247,148,79', grad_c3:'196,98,16',
+  rate_limit_max:'5', rate_limit_window:'60' };
 for (const [k, v] of Object.entries(defaults)) {
   db.prepare("INSERT OR IGNORE INTO config (key, value) VALUES (?, ?)").run(k, v);
 }
@@ -68,6 +69,18 @@ db.exec(`
     creado TEXT NOT NULL DEFAULT (datetime('now'))
   )
 `);
+
+// ── Login logs table ──
+db.exec(`
+  CREATE TABLE IF NOT EXISTS login_logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    fecha TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+    ip TEXT NOT NULL DEFAULT '',
+    email TEXT NOT NULL DEFAULT '',
+    exitoso INTEGER NOT NULL DEFAULT 0
+  )
+`);
+db.exec("DELETE FROM login_logs WHERE id NOT IN (SELECT id FROM login_logs ORDER BY id DESC LIMIT 500)");
 
 // ── New Tables ──
 db.exec(`
@@ -138,19 +151,24 @@ function soloAdmin(req, res, next) {
   next();
 }
 
-// ── Login rate limiter: 5 attempts per IP per 60s window ──
+// ── Login rate limiter ──
 var loginAttempts = {};
-setInterval(function() { loginAttempts = {}; }, 60000);
 function loginRateLimit(req, res, next) {
   var ip = req.ip || req.connection.remoteAddress || 'unknown';
   var now = Date.now();
+  var max = parseInt(db.prepare("SELECT value FROM config WHERE key = 'rate_limit_max'").get()?.value || '5', 10);
+  var windowMs = parseInt(db.prepare("SELECT value FROM config WHERE key = 'rate_limit_window'").get()?.value || '60', 10) * 1000;
   if (!loginAttempts[ip]) loginAttempts[ip] = [];
-  loginAttempts[ip] = loginAttempts[ip].filter(function(t) { return now - t < 60000; });
-  if (loginAttempts[ip].length >= 5) {
-    return res.status(429).json({ error: 'Demasiados intentos. Intenta de nuevo en 1 minuto.' });
+  loginAttempts[ip] = loginAttempts[ip].filter(function(t) { return now - t < windowMs; });
+  if (loginAttempts[ip].length >= max) {
+    return res.status(429).json({ error: 'Demasiados intentos. Intenta de nuevo en ' + (windowMs/1000) + ' segundos.' });
   }
   loginAttempts[ip].push(now);
   next();
+}
+
+function logLoginAttempt(ip, email, exitoso) {
+  db.prepare("INSERT INTO login_logs (ip, email, exitoso) VALUES (?, ?, ?)").run(ip || '', (email || '').toLowerCase().trim(), exitoso ? 1 : 0);
 }
 
 app.post('/api/auth/login', loginRateLimit, async (req, res) => {
@@ -158,7 +176,11 @@ app.post('/api/auth/login', loginRateLimit, async (req, res) => {
   if (!email || !password) return res.status(400).json({ error: 'Campos requeridos' });
   try {
     const user = db.prepare('SELECT * FROM usuarios WHERE email = ? AND activo = 1').get(email.toLowerCase().trim());
-    if (!user || !bcrypt.compareSync(password, user.password_hash)) return res.status(401).json({ error: 'Credenciales inválidas' });
+    if (!user || !bcrypt.compareSync(password, user.password_hash)) {
+      logLoginAttempt(req.ip, email, false);
+      return res.status(401).json({ error: 'Credenciales inválidas' });
+    }
+    logLoginAttempt(req.ip, email, true);
     const payload = { id: user.id, email: user.email, nombre: user.nombre, rol: user.rol };
     const token = jwt.sign(payload, JWT_SECRET, { expiresIn: '24h' });
     db.prepare("UPDATE usuarios SET actualizado = datetime('now') WHERE id = ?").run(user.id);
@@ -197,19 +219,35 @@ app.post('/api/admin/smtp/test', verificarToken, soloAdmin, async (req, res) => 
 
 // ── Global config (gradients, etc.) ──
 app.get('/api/config', (req, res) => {
-  const rows = db.prepare("SELECT key, value FROM config WHERE key LIKE 'grad_%' ORDER BY key").all();
+  const rows = db.prepare("SELECT key, value FROM config WHERE key LIKE 'grad_%' OR key LIKE 'rate_limit_%' ORDER BY key").all();
   const cfg = {};
   for (const r of rows) cfg[r.key] = r.value;
   res.json({ config: cfg });
 });
 
 app.put('/api/admin/config', verificarToken, soloAdmin, (req, res) => {
-  const allowed = ['grad_c1','grad_c2','grad_c3'];
+  const allowed = ['grad_c1','grad_c2','grad_c3','rate_limit_max','rate_limit_window'];
   const upsert = db.prepare('INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)');
   for (const [k, v] of Object.entries(req.body)) {
     if (allowed.includes(k)) upsert.run(k, String(v ?? ''));
   }
   res.json({ ok: true });
+});
+
+// Admin GET: returns allowed config keys (grad + rate_limit)
+app.get('/api/admin/config', verificarToken, soloAdmin, (req, res) => {
+  const allowed = ['grad_c1','grad_c2','grad_c3','rate_limit_max','rate_limit_window'];
+  const placeholders = allowed.map(function() { return '?'; }).join(',');
+  const rows = db.prepare("SELECT key, value FROM config WHERE key IN (" + placeholders + ")").all(...allowed);
+  const cfg = {};
+  for (const r of rows) cfg[r.key] = r.value;
+  res.json({ config: cfg });
+});
+
+// ── Login logs ──
+app.get('/api/admin/login-logs', verificarToken, soloAdmin, (req, res) => {
+  const rows = db.prepare("SELECT id, fecha, ip, email, exitoso FROM login_logs ORDER BY id DESC LIMIT 50").all();
+  res.json({ logs: rows });
 });
 
 // ── Password recovery ──
