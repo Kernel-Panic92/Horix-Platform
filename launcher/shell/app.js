@@ -314,6 +314,7 @@ function showModuloForm(data) {
   document.getElementById('modulo-form-id-input').value = data?.id || '';
   document.getElementById('modulo-form-id-input').disabled = !!data?.id;
   document.getElementById('modulo-form-nombre').value = data?.nombre || '';
+  document.getElementById('modulo-form-url').value = data?.url || '';
   document.getElementById('modulo-form-public-url').value = data?.public_url || '';
   document.getElementById('modulo-form-proxy-prefix').value = data?.proxy_prefix || '';
   document.getElementById('modulo-form-desc').value = data?.descripcion || '';
@@ -333,6 +334,7 @@ function closeModuloForm() {
 async function saveModulo() {
   const id = document.getElementById('modulo-form-id').value || document.getElementById('modulo-form-id-input').value.trim();
   const nombre = document.getElementById('modulo-form-nombre').value.trim();
+  const url = document.getElementById('modulo-form-url').value.trim();
   const public_url = document.getElementById('modulo-form-public-url').value.trim();
   const icon = document.getElementById('modulo-form-icon').value.trim() || '📦';
   const desc = document.getElementById('modulo-form-desc').value.trim();
@@ -345,7 +347,7 @@ async function saveModulo() {
     const res = await fetch(method === 'PUT' ? `/api/admin/modulos/${id}` : '/api/admin/modulos', {
       method,
       headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + jwtToken },
-      body: JSON.stringify({ id, nombre, public_url, icon, descripcion: desc, mcp_enabled, proxy_prefix })
+      body: JSON.stringify({ id, nombre, url, public_url, icon, descripcion: desc, mcp_enabled, proxy_prefix })
     });
     if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || 'Error'); }
     closeModuloForm();
