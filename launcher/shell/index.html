@@ -316,10 +316,13 @@
       <div style="font-size:var(--fs);font-weight:600;">Configuración MCP por módulo</div>
       <span style="font-size:13px;color:var(--muted);">Los cambios se guardan automáticamente</span>
     </div>
-    <div id="mcp-url-box" style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:12px 16px;margin-bottom:16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
-      <span style="font-size:13px;font-weight:600;color:var(--muted);text-transform:uppercase;">URL para cliente MCP</span>
-      <code id="mcp-url-display" style="flex:1;background:var(--surface);padding:10px 14px;border-radius:6px;font-size:14px;border:1px solid var(--border);word-break:break-all;"></code>
-      <button class="btn btn-sm" onclick="copiarMcpUrl()" style="white-space:nowrap;">📋 Copiar</button>
+    <div id="mcp-url-box" style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:12px 16px;margin-bottom:16px;display:flex;flex-direction:column;gap:8px;">
+      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+        <span style="font-size:13px;font-weight:600;color:var(--muted);text-transform:uppercase;white-space:nowrap;">URL para cliente MCP</span>
+        <code id="mcp-url-display" style="flex:1;background:var(--surface);padding:10px 14px;border-radius:6px;font-size:14px;border:1px solid var(--border);word-break:break-all;"></code>
+        <button class="btn btn-sm" onclick="copiarMcpUrl()" style="white-space:nowrap;">📋 Copiar</button>
+      </div>
+      <div style="font-size:12px;color:var(--muted);" id="mcp-url-alt"></div>
     </div>
     <div id="mcp-container"></div>
   </div>

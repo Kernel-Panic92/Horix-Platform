@@ -583,11 +583,17 @@ app.get('/api/admin/mcp/url', verificarToken, soloAdmin, (req, res) => {
       if (pm) mcpPort = pm[1].trim();
     }
   } catch {}
+  // Use the Host header as dynamic domain when behind nginx
+  const host = req.headers['x-forwarded-host'] || req.headers.host || dominio;
+  const proto = req.headers['x-forwarded-proto'] || req.protocol || 'https';
+  // If the request came through on a specific host, use that
+  const dynamicHost = host.includes(':') ? host.split(':')[0] : host;
   res.json({
-    url_directa: `https://${dominio}:${mcpPort}/mcp`,
-    url_gateway: `https://${dominio}/mcp-gateway/mcp`,
-    dominio,
-    puerto: mcpPort
+    url_directa: `${proto}://${dynamicHost}:${mcpPort}/mcp`,
+    url_gateway: `${proto}://${dynamicHost}/mcp-gateway/mcp`,
+    dominio: dynamicHost,
+    puerto: mcpPort,
+    url: `${proto}://${dynamicHost}:${mcpPort}/mcp`
   });
 });
 
