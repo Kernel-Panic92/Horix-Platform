@@ -7,15 +7,15 @@
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
   :root {
-    --bg:#0d0f14; --surface:#161a23; --surface2:#1e2330; --border:#2a3045;
-    --accent:#4f8ef7; --success:#2f855a; --warning:#d69e2e; --danger:#c53030;
-    --text:#e8ecf5; --muted:#7a85a0;
+    --bg:#12141a; --surface:#1a1d28; --surface2:#222738; --border:#2e3548;
+    --accent:#5b9bf7; --success:#38a169; --warning:#d69e2e; --danger:#e05353;
+    --text:#e8ecf4; --muted:#8892a8;
     --font:'Inter',sans-serif;
   }
   *{box-sizing:border-box;margin:0;padding:0;}
   body{
     background:var(--bg);color:var(--text);font-family:var(--font);
-    min-height:100vh;display:flex;align-items:center;justify-content:center;
+    min-height:100vh;
     background: radial-gradient(ellipse at 20% 50%, rgba(79,142,247,0.08) 0%, transparent 60%),
                 radial-gradient(ellipse at 80% 20%, rgba(247,148,79,0.06) 0%, transparent 50%),
                 var(--bg);
@@ -69,7 +69,7 @@
 
   .footer{text-align:center;margin-top:32px;font-size:12px;color:var(--muted);}
 
-  #login-screen{display:block;}
+  #login-screen{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;}
   #launcher-screen{display:none;width:100%;min-height:100vh;padding:0;}
   #admin-screen{display:none;}
 
@@ -86,6 +86,8 @@
   .dash-user .role{color:var(--muted);font-size:11px;text-transform:capitalize;}
   .dash-logout{font-size:12px;color:var(--muted);cursor:pointer;padding:6px 12px;border-radius:8px;border:1px solid var(--border);transition:all 0.2s;}
   .dash-logout:hover{color:var(--danger);border-color:var(--danger);}
+  .dash-back{font-size:13px;color:var(--muted);cursor:pointer;transition:color 0.2s;}
+  .dash-back:hover{color:var(--text);}
   .dash-body{padding:32px;max-width:1200px;margin:0 auto;}
   .dash-body h2{font-size:18px;font-weight:700;margin-bottom:4px;}
   .dash-body p{font-size:13px;color:var(--muted);margin-bottom:8px;}
@@ -126,7 +128,7 @@
   .modal label{font-size:12px;}
   .modal input,.modal select{width:100%;box-sizing:border-box;}
   @media(max-width:640px){
-    body{align-items:flex-start;padding:0;}
+    body{padding:0;}
     .box{width:100%!important;max-width:100%;border-radius:14px;padding:20px 16px;margin:12px;}
     .tabs{overflow-x:auto;gap:4px;flex-wrap:nowrap;}
     .tab{padding:8px 12px;font-size:12px;white-space:nowrap;}
@@ -223,20 +225,25 @@
   </div>
 </div>
 
-<div class="box" id="admin-screen" style="width:860px;">
-  <div class="header">
-    <span class="logout" onclick="logout()">&#10005; Cerrar sesión</span>
-    <div class="logo">&#9889; <span>Admin</span></div>
-    <div class="user" id="admin-header-user"></div>
+<div id="admin-screen">
+  <div class="dash-header">
+    <div style="display:flex;align-items:center;gap:16px;">
+      <span class="dash-back" onclick="showLauncher()">&larr; Volver</span>
+      <div class="dash-logo">&#9889; <span>Admin</span></div>
+    </div>
+    <div class="dash-user">
+      <span class="name" id="admin-header-user"></span>
+      <span class="dash-logout" onclick="logout()">Cerrar sesión</span>
+    </div>
   </div>
-  <span class="back" onclick="showLauncher()">&larr; Volver al inicio</span>
-  <div class="tabs">
-    <div class="tab active" data-tab="usuarios" onclick="showAdminTab('usuarios')">Usuarios</div>
-    <div class="tab" data-tab="modulos" onclick="showAdminTab('modulos')">Módulos</div>
-    <div class="tab" data-tab="mcp" onclick="showAdminTab('mcp')">MCP</div>
-    <div class="tab" data-tab="smtp" onclick="showAdminTab('smtp')">SMTP</div>
-    <div class="tab" data-tab="nginx" onclick="showAdminTab('nginx')">Nginx</div>
-  </div>
+  <div class="dash-body">
+    <div class="tabs">
+      <div class="tab active" data-tab="usuarios" onclick="showAdminTab('usuarios')">Usuarios</div>
+      <div class="tab" data-tab="modulos" onclick="showAdminTab('modulos')">Módulos</div>
+      <div class="tab" data-tab="mcp" onclick="showAdminTab('mcp')">MCP</div>
+      <div class="tab" data-tab="smtp" onclick="showAdminTab('smtp')">SMTP</div>
+      <div class="tab" data-tab="nginx" onclick="showAdminTab('nginx')">Nginx</div>
+    </div>
   <div class="tab-content active" id="tab-usuarios">
     <div style="display:flex;justify-content:space-between;align-items:center;margin:12px 0;">
       <div style="font-size:14px;font-weight:600;">Usuarios</div>
@@ -318,7 +325,6 @@
     <div id="nginx-status"></div>
     <pre id="nginx-config" style="background:var(--surface2);border:1px solid var(--border);border-radius:9px;padding:14px;font-size:12px;overflow-x:auto;white-space:pre;max-height:400px;color:var(--text);margin-top:8px;"></pre>
   </div>
-  <div class="footer">horix-platform</div>
 </div>
 
 <div class="modal-overlay" id="admin-form-overlay">

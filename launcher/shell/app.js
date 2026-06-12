@@ -115,8 +115,6 @@ function showAdmin() {
   showAdminTab('usuarios');
 }
 
-
-
 async function loadUsers() {
   try {
     const res = await fetch('/api/admin/usuarios', {
