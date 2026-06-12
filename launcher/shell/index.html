@@ -70,7 +70,42 @@
 
   .footer{text-align:center;margin-top:32px;font-size:13px;color:var(--muted);}
 
-  #login-screen{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;}
+  #login-screen{
+    display:none;min-height:100vh;
+  }
+  .login-left{
+    flex:0 0 420px;display:flex;flex-direction:column;align-items:center;justify-content:center;
+    padding:40px;background:var(--surface);
+  }
+  .login-left .box{width:100%;border:none;box-shadow:none;padding:0;background:transparent;animation:slideUp 0.35s ease;}
+  .login-right{
+    flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;
+    background:
+      radial-gradient(ellipse at 30% 40%, rgba(79,142,247,0.12) 0%, transparent 50%),
+      radial-gradient(ellipse at 70% 80%, rgba(91,155,247,0.06) 0%, transparent 40%),
+      linear-gradient(160deg, #151a26 0%, #0f121b 100%);
+    padding:40px;position:relative;overflow:hidden;
+  }
+  .login-right::before{
+    content:'';position:absolute;top:-20%;right:-10%;width:500px;height:500px;
+    background:radial-gradient(circle,rgba(79,142,247,0.08) 0%,transparent 70%);
+    border-radius:50%;pointer-events:none;
+  }
+  .login-right::after{
+    content:'';position:absolute;bottom:-10%;left:-5%;width:400px;height:400px;
+    background:radial-gradient(circle,rgba(91,155,247,0.05) 0%,transparent 70%);
+    border-radius:50%;pointer-events:none;
+  }
+  .login-brand{font-size:80px;margin-bottom:16px;filter:drop-shadow(0 8px 32px rgba(79,142,247,0.2));}
+  .login-title{font-size:32px;font-weight:800;letter-spacing:-0.5px;margin-bottom:8px;}
+  .login-title span{color:var(--accent);}
+  .login-tagline{font-size:16px;color:var(--muted);max-width:360px;text-align:center;line-height:1.6;}
+  .login-decoration{display:flex;gap:12px;margin-top:40px;}
+  .login-dot{width:8px;height:8px;border-radius:50%;background:var(--accent);opacity:0.3;animation:pulse 2s ease-in-out infinite;}
+  .login-dot:nth-child(2){animation-delay:0.3s;opacity:0.5;}
+  .login-dot:nth-child(3){animation-delay:0.6s;opacity:0.7;}
+  @keyframes pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.5)}}
+
   #launcher-screen{display:none;width:100%;min-height:100vh;padding:0;}
   #admin-screen{display:none;}
 
@@ -128,6 +163,11 @@
   .modal a{color:var(--accent);}
   .modal label{font-size:13px;}
   .modal input,.modal select{width:100%;box-sizing:border-box;}
+  @media(max-width:768px){
+    #login-screen{flex-direction:column;}
+    .login-left{flex:1;padding:32px 24px;}
+    .login-right{display:none;}
+  }
   @media(max-width:640px){
     body{padding:0;}
     .box{width:100%!important;max-width:100%;border-radius:14px;padding:24px 18px;margin:12px;}
@@ -149,20 +189,34 @@
 </style>
 </head>
 <body>
-<div class="box" id="login-screen">
-  <div class="logo">&#9889; <span>Horix Launcher</span></div>
-  <div class="sub">Accede a todos los m&oacute;dulos del sistema</div>
-  <div class="error" id="login-error"></div>
-  <label>Usuario</label>
-  <input type="text" id="login-user" placeholder="Correo electrónico" autocomplete="username" autofocus>
-  <label>Contraseña</label>
-  <input type="password" id="login-pass" placeholder="&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;" autocomplete="current-password">
-  <button class="btn" id="login-btn" onclick="login()">Ingresar</button>
-  <div style="text-align:center;margin-top:12px;">
-    <a href="#" onclick="showForgotPassword();return false;" style="color:var(--muted);font-size:13px;text-decoration:none;">¿Olvidaste tu contraseña?</a>
+<div id="login-screen">
+  <div class="login-left">
+    <div class="box">
+      <div class="logo">&#9889; <span>Horix Launcher</span></div>
+      <div class="sub">Accede a todos los m&oacute;dulos del sistema</div>
+      <div class="error" id="login-error"></div>
+      <label>Usuario</label>
+      <input type="text" id="login-user" placeholder="Correo electrónico" autocomplete="username" autofocus>
+      <label>Contraseña</label>
+      <input type="password" id="login-pass" placeholder="&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;" autocomplete="current-password">
+      <button class="btn" id="login-btn" onclick="login()">Ingresar</button>
+      <div style="text-align:center;margin-top:12px;">
+        <a href="#" onclick="showForgotPassword();return false;" style="color:var(--muted);font-size:13px;text-decoration:none;">¿Olvidaste tu contraseña?</a>
+      </div>
+      <div class="footer" style="margin-top:16px;border:none;padding:0;">
+        <span style="font-size:12px;">&copy; 2026 Edgar Velasquez</span>
+      </div>
+    </div>
   </div>
-  <div class="footer" style="margin-top:16px;">
-    <span style="font-size:12px;">&copy; 2026 Edgar Velasquez</span>
+  <div class="login-right">
+    <div class="login-brand">&#9889;</div>
+    <div class="login-title"><span>Horix</span> Platform</div>
+    <div class="login-tagline">Centro de operaciones inteligente para la gesti&oacute;n empresarial</div>
+    <div class="login-decoration">
+      <div class="login-dot"></div>
+      <div class="login-dot"></div>
+      <div class="login-dot"></div>
+    </div>
   </div>
 </div>
 
@@ -177,10 +231,10 @@
       <button class="btn" onclick="sendResetToken()" style="width:100%;">Enviar enlace</button>
     </div>
     <div id="forgot-step-done" style="display:none;">
-      <div style="background:var(--surface2);border-radius:9px;padding:14px;margin-bottom:16px;font-size:13px;">
+      <div style="background:var(--surface2);border-radius:9px;padding:14px;margin-bottom:16px;">
         <div style="font-weight:600;margin-bottom:6px;">🔗 Enlace de recuperación</div>
         <code id="forgot-link" style="display:block;word-break:break-all;"></code>
-        <div style="font-size:12px;color:var(--muted);margin-top:6px;">Válido por 1 hora. Cópialo y ábrelo en una nueva pestaña.</div>
+        <div style="font-size:13px;color:var(--muted);margin-top:6px;">Válido por 1 hora. Cópialo y ábrelo en una nueva pestaña.</div>
       </div>
       <button class="btn" onclick="closeForgot()" style="width:100%;background:var(--surface2);color:var(--text);">Cerrar</button>
     </div>
@@ -275,7 +329,7 @@
   <div class="tab-content" id="tab-mcp">
     <div style="display:flex;justify-content:space-between;align-items:center;margin:12px 0;">
       <div style="font-size:var(--fs);font-weight:600;">Configuración MCP por módulo</div>
-      <span style="font-size:12px;color:var(--muted);">Los cambios se guardan automáticamente</span>
+      <span style="font-size:13px;color:var(--muted);">Los cambios se guardan automáticamente</span>
     </div>
     <div id="mcp-url-box" style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:12px 16px;margin-bottom:16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
       <span style="font-size:13px;font-weight:600;color:var(--muted);text-transform:uppercase;">URL para cliente MCP</span>
@@ -287,7 +341,7 @@
   <div class="tab-content" id="tab-smtp">
     <div style="display:flex;justify-content:space-between;align-items:center;margin:12px 0;">
       <div style="font-size:var(--fs);font-weight:600;">Configuración SMTP</div>
-      <span style="font-size:12px;color:var(--muted);" id="smtp-status-badge"></span>
+      <span style="font-size:13px;color:var(--muted);" id="smtp-status-badge"></span>
     </div>
     <div class="perm-rol-section">
       <div class="perm-rol-titulo">Servidor de correo</div>
@@ -326,6 +380,7 @@
     <div id="nginx-status"></div>
     <pre id="nginx-config" style="background:var(--surface2);border:1px solid var(--border);border-radius:9px;padding:16px;font-size:13px;overflow-x:auto;white-space:pre;max-height:400px;color:var(--text);margin-top:8px;"></pre>
   </div>
+</div>
 </div>
 
 <div class="modal-overlay" id="admin-form-overlay">
