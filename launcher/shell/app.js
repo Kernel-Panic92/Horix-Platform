@@ -3,7 +3,12 @@ let user = null;
 
 function show(id) {
   ['login-screen', 'launcher-screen', 'admin-screen', 'admin-form-overlay', 'modulo-form-overlay'].forEach(s => {
-    document.getElementById(s).style.display = s === id ? 'block' : 'none';
+    const el = document.getElementById(s);
+    if (s === id) {
+      el.style.display = (s === 'login-screen') ? 'flex' : 'block';
+    } else {
+      el.style.display = 'none';
+    }
   });
 }
 
