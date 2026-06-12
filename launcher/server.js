@@ -12,8 +12,14 @@ const app = express();
 app.set('trust proxy', true);
 app.use(express.json());
 
+// Used by client to detect server restarts (soft reload)
+app.get('/api/version', (req, res) => {
+  res.json({ v: SERVER_START });
+});
+
 const PORT = parseInt(process.env.PORT || '3002', 10);
 const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret';
+const SERVER_START = Date.now();
 
 
 const db = new Database(path.join(__dirname, 'launcher.db'));

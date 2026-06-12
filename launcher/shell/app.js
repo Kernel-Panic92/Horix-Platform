@@ -830,3 +830,26 @@ function resetGradConfig() {
     document.getElementById('reset-modal').style.display = 'block';
   }
 })();
+
+// ── Auto-reload on server restart ──
+(function() {
+  var ver = null;
+  var banner = null;
+  function checkVersion() {
+    fetch('/api/version', { cache: 'no-store' }).then(function(r){ return r.json(); }).then(function(d){
+      if (d.v) {
+        if (ver === null) { ver = d.v; return; }
+        if (d.v !== ver) {
+          if (!banner) {
+            banner = document.createElement('div');
+            banner.style.cssText = 'position:fixed;bottom:0;left:0;right:0;z-index:9999;background:var(--surface2);border-top:2px solid var(--accent);padding:14px 20px;text-align:center;font-size:14px;animation:slideUp 0.3s ease;display:flex;align-items:center;justify-content:center;gap:12px;flex-wrap:wrap;';
+            banner.innerHTML = '<span style="color:var(--text);">\uD83D\uDD04 Nueva versi\u00f3n disponible</span><button onclick="location.reload()" style="background:var(--accent);color:#fff;border:none;border-radius:8px;padding:8px 20px;font-family:var(--font);font-size:13px;font-weight:600;cursor:pointer;">Recargar ahora</button><span onclick="this.parentElement.style.display=\'none\'" style="color:var(--muted);font-size:20px;cursor:pointer;line-height:1;">\u00d7</span>';
+            document.body.appendChild(banner);
+          }
+        }
+      }
+    }).catch(function(){});
+  }
+  checkVersion();
+  setInterval(checkVersion, 15000);
+})();
